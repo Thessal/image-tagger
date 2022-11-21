@@ -9,6 +9,7 @@ import lzma, tarfile
 import tensorflow as tf
 import numpy as np
 from keras.layers import LeakyReLU
+import os 
 
 
 # In[2]:
@@ -36,7 +37,7 @@ tags_topN_name = sorted([x["name"] for x in tags_topN])
 # sorted([x for x in tags_d if ("_chart" in x["name"]) and x['post_count']!='0'], key=lambda x:int(x["post_count"]), reverse=True)
 
 
-# In[1]:
+# In[ ]:
 
 
 # Get image metadata
@@ -56,29 +57,34 @@ def get_tag():
                             yield result
                         except Exception as e:
                             print(f"[json load] {e} : {line}")
-                    
-tags_gen = get_tag()
-with open('metadata_procesed.json.xz', 'wb', buffering=1024*1024) as f:
-    lzc = lzma.LZMACompressor()
-    data = b""
-    for x in tags_gen:
-        if int(x["score"]) > 5:
-            tag_processed = {
-                "id": x['id'],
-                "pools": x["pools"],
-                "tags_": [tags_topN_name.index(t["name"]) for t in x["tags"] if (t["name"] in tags_topN_name)]
-            }
-            data += lzc.compress((json.dumps(tag_processed)+'\n').encode(encoding='utf-8'))
-    data += lzc.flush()
-    f.write(data)
+
+if not os.path.isfile("metadata_procesed.json.xz"):
+    tags_gen = get_tag()
+    with open('metadata_procesed.json.xz', 'wb', buffering=1024*1024) as f:
+        lzc = lzma.LZMACompressor()
+        data = b""
+        for x in tags_gen:
+            if (int(x["score"]) > 5) and (x['file_ext'].lower() in ['jpg', 'jpeg', 'bmp', 'png', 'gif']):
+                tag_processed = {
+                    "id": x['id'],
+                    "pools": x["pools"],
+                    "file_ext": x['file_ext'],
+                    "tags_": [tags_topN_name.index(t["name"]) for t in x["tags"] if (t["name"] in tags_topN_name)],
+                }
+                data += lzc.compress((json.dumps(tag_processed)+'\n').encode(encoding='utf-8'))
+        data += lzc.flush()
+        f.write(data)
+
+with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
+    metadata = [json.loads(line) for line in f.readlines()]
 
 
-# In[38]:
+# In[ ]:
 
 
 # Define model
 pretrained_model = tf.keras.applications.inception_v3.InceptionV3(
-    include_top=False,
+    include_top=True,
     weights='imagenet',
     input_tensor=None,
     input_shape=(299, 299, 3),
@@ -88,7 +94,7 @@ pretrained_model = tf.keras.applications.inception_v3.InceptionV3(
 )
 
 custom_model = tf.keras.applications.inception_v3.InceptionV3(
-    include_top=False,
+    include_top=True,
     weights=None,
     input_tensor=None,
     input_shape=(299, 299, 3),
@@ -97,10 +103,11 @@ custom_model = tf.keras.applications.inception_v3.InceptionV3(
     classifier_activation=LeakyReLU(alpha=0.05)
 )
 
+getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
 for src, tgt in zip(pretrained_model.layers, custom_model.layers):
     if ("activation" not in src.name):
         try:
-            assert (("_".join(src.name.split("_")[:-1])) == ("_".join(tgt.name.split("_")[:-1])))
+            assert (getname(src.name) == getname(tgt.name))
         except:
             print(src.name, tgt.name)
             raise Exception
@@ -116,30 +123,46 @@ resized_model = tf.keras.Model(inputs=adapter_input, outputs=result)
 model = resized_model
 # model.summary()
 # trim_model.summary()
-model.compile(loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))
+
+model.compile(loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False))
+# sparse_softmax_cross_entropy_with_logits
 
 
-# In[30]:
+# In[ ]:
 
 
-with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
-    metadata = [json.loads(line) for line in f.readlines()]
-files_lst = [f'./512px/0{x["id"].rjust(7,"0")[-3:]}/{x["id"]}.jpg' for x in metadata]
-labels_lst = [x["tags_"] for x in metadata] 
-
-
-# In[49]:
-
+import requests
+# train_set = zip(files_lst[:100], labels_lst[:100])
+# train_set = [(x["id"],x["tags_"]) for x in metadata[:100]]
+train_set = metadata[:10000]
 
 encoder = tf.keras.layers.CategoryEncoding(output_mode="multi_hot", num_tokens=N)
 def gen():
     # TODO : shuffle
-    for path, label in zip(files_lst[:100], labels_lst[:100]):
-        image = tf.io.read_file(path)
-        image = tf.image.decode_jpeg(image, channels=3)
-        image = tf.image.convert_image_dtype(image, tf.uint8)
-        label_enc = tf.keras.utils.normalize(encoder(label))
-    yield image, label_end
+    for info in train_set:
+        img_id = info["id"]
+        img_ext = info["file_ext"]
+        label = info["tags_"]
+        if len(label) < 3 :
+            print(f"[error] {label}")
+            continue
+        
+        path = f'http://192.168.20.50/danbooru2021/512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
+        response = requests.get(path)
+        image = response.content
+        if response.status_code != 200:
+            print(f"[error] {path}")
+            continue        
+        if False:
+            path = f'./512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
+            if not os.path.exists(path):
+                print(f"[error] {path}")
+                continue
+            image = tf.io.read_file(path)
+
+        image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
+        label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?
+        yield image, tf.squeeze(label_enc)
     
 dataset_train = tf.data.Dataset.from_generator(
     gen,
@@ -150,17 +173,19 @@ dataset_train = tf.data.Dataset.from_generator(
 )
 
 
-# In[50]:
+# In[ ]:
 
 
+#     train_dataset = train.cache().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
+#     train_dataset = train_dataset.prefetch(buffer_size=AUTOTUNE)
 EPOCHS = 1 # debug
 train_dataset = dataset_train.take(10).batch(1) # debug
-# test_dataset = train_raw_dataset.take(10).batch(1) # debug
+test_dataset = dataset_train.take(10).batch(1) # debug
 
-CORES_COUNT= 2
+CORES_COUNT= 1
 model_history = model.fit(train_dataset,
                           epochs=EPOCHS,
-                          #validation_data=test_dataset,
+                          validation_data=test_dataset,
                           use_multiprocessing=True,
                           workers=CORES_COUNT,
                           callbacks=[])#[DisplayCallback()])
