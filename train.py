@@ -20,8 +20,10 @@ import os
 N = 1000
 IMAGE_SIZE = 512
 
+VERBOSE = False
 
-# In[3]:
+
+# In[ ]:
 
 
 # Get tag list
@@ -124,7 +126,14 @@ model = resized_model
 # model.summary()
 # trim_model.summary()
 
-model.compile(loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False))
+model.compile(optimizer='adam',
+#               loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+              loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+              metrics=[
+                  #tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy_sparse', dtype=None),
+                  tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None)
+              ],
+             )
 # sparse_softmax_cross_entropy_with_logits
 
 
@@ -134,8 +143,12 @@ model.compile(loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False))
 import requests
 # train_set = zip(files_lst[:100], labels_lst[:100])
 # train_set = [(x["id"],x["tags_"]) for x in metadata[:100]]
-train_set = metadata[:10000]
+train_set = metadata#[:10000]
 
+def _print(*args):
+    if VERBOSE:
+        print(*args)
+    
 encoder = tf.keras.layers.CategoryEncoding(output_mode="multi_hot", num_tokens=N)
 def gen():
     # TODO : shuffle
@@ -144,19 +157,19 @@ def gen():
         img_ext = info["file_ext"]
         label = info["tags_"]
         if len(label) < 3 :
-            print(f"[error] {label}")
+            _print(f"[error] {label}")
             continue
         
         path = f'http://192.168.20.50/danbooru2021/512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
         response = requests.get(path)
         image = response.content
         if response.status_code != 200:
-            print(f"[error] {path}")
+            _print(f"[error] {path}")
             continue        
         if False:
             path = f'./512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
             if not os.path.exists(path):
-                print(f"[error] {path}")
+                _print(f"[error] {path}")
                 continue
             image = tf.io.read_file(path)
 
@@ -178,24 +191,38 @@ dataset_train = tf.data.Dataset.from_generator(
 
 #     train_dataset = train.cache().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
 #     train_dataset = train_dataset.prefetch(buffer_size=AUTOTUNE)
-EPOCHS = 1 # debug
-train_dataset = dataset_train.take(10).batch(1) # debug
-test_dataset = dataset_train.take(10).batch(1) # debug
+EPOCHS = 10 # debug
+# train_dataset = dataset_train.take(10).batch(1) # debug
+# test_dataset = dataset_train.take(10).batch(1) # debug
+BUFFER_SIZE=64
+TRAINING_BATCH_SIZE=32
+CORES_COUNT= 2
 
-CORES_COUNT= 1
+# Checkpoints
+class DisplayCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
+        # print(logs)
+        output_path = "./model"
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+        with open (f"{output_path}/loss_{epoch}.json", "w") as f :
+            f.write(json.dumps(logs))
+        #model.save(output_path)                    
+filepath="weights-improvement-{epoch:02d}-{val_accuracy:.2f}.hdf5"
+checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
+logdir = "./tensorboard-logs"
+tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+
+
+# Train
+# train_dataset = dataset_train.take(100).shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
+train_dataset = dataset_train.shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
+test_dataset = dataset_train.take(1000).batch(1000) # debug
 model_history = model.fit(train_dataset,
                           epochs=EPOCHS,
                           validation_data=test_dataset,
                           use_multiprocessing=True,
                           workers=CORES_COUNT,
-                          callbacks=[])#[DisplayCallback()])
-
-#     print(" - Training finished, saving metrics into ./graphs")
-#     save_model_history_metrics(EPOCHS, model_history)
-#     print(" - Training finished, saving model into ./model")
-#     output_path = "./model"
-#     if not os.path.exists(output_path):
-#         os.makedirs(output_path)
-#     model.save(output_path)
-#     print(" - Model updated and saved")
+                          callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
 
