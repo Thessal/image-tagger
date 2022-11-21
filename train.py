@@ -23,7 +23,7 @@ IMAGE_SIZE = 512
 VERBOSE = False
 
 
-# In[ ]:
+# In[3]:
 
 
 # Get tag list
@@ -39,7 +39,7 @@ tags_topN_name = sorted([x["name"] for x in tags_topN])
 # sorted([x for x in tags_d if ("_chart" in x["name"]) and x['post_count']!='0'], key=lambda x:int(x["post_count"]), reverse=True)
 
 
-# In[ ]:
+# In[4]:
 
 
 # Get image metadata
@@ -81,7 +81,7 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
     metadata = [json.loads(line) for line in f.readlines()]
 
 
-# In[ ]:
+# In[29]:
 
 
 # Define model
@@ -131,13 +131,14 @@ model.compile(optimizer='adam',
               loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
               metrics=[
                   #tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy_sparse', dtype=None),
-                  tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None)
+                  tf.keras.metrics.KLDivergence(),
+                  tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None),
               ],
              )
 # sparse_softmax_cross_entropy_with_logits
 
 
-# In[ ]:
+# In[30]:
 
 
 import requests
@@ -186,30 +187,48 @@ dataset_train = tf.data.Dataset.from_generator(
 )
 
 
-# In[ ]:
+# In[35]:
+
+
+# Freeze convolution layers
+model.summary()
+
+def freeze(unfreeze=False):
+    for layer in model.layers[3].layers:
+        if layer.name.startswith("conv2d"):
+            layer.trainable = True if unfreeze else False
+
+freeze()
+model.summary()
+
+
+# In[28]:
 
 
 #     train_dataset = train.cache().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
 #     train_dataset = train_dataset.prefetch(buffer_size=AUTOTUNE)
-EPOCHS = 10 # debug
-# train_dataset = dataset_train.take(10).batch(1) # debug
-# test_dataset = dataset_train.take(10).batch(1) # debug
-BUFFER_SIZE=64
-TRAINING_BATCH_SIZE=32
+TRAINING_BATCH_SIZE=64
+BUFFER_SIZE=TRAINING_BATCH_SIZE*2
+STEPS_PER_EPOCH=1000
 CORES_COUNT= 2
+EPOCHS = 3 * len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH
+UNFREEZE_EPOCH = EPOCHS//10
 
 # Checkpoints
+output_path = "./model"
 class DisplayCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
         # print(logs)
-        output_path = "./model"
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         with open (f"{output_path}/loss_{epoch}.json", "w") as f :
             f.write(json.dumps(logs))
+        if epoch > UNFREEZE_EPOCH:
+            print("UNFREEZING")
+            freeze(unfreeze=True)
         #model.save(output_path)                    
-filepath="weights-improvement-{epoch:02d}-{val_accuracy:.2f}.hdf5"
+filepath=output_path+"/weights-improvement-{epoch:02d}-{val_accuracy:.2f}.hdf5"
 checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
 logdir = "./tensorboard-logs"
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
@@ -218,11 +237,19 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 # Train
 # train_dataset = dataset_train.take(100).shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
 train_dataset = dataset_train.shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
-test_dataset = dataset_train.take(1000).batch(1000) # debug
+test_dataset = dataset_train.batch(TRAINING_BATCH_SIZE)
 model_history = model.fit(train_dataset,
                           epochs=EPOCHS,
+                          steps_per_epoch=STEPS_PER_EPOCH,
                           validation_data=test_dataset,
+                          validation_steps=1+STEPS_PER_EPOCH//10,
                           use_multiprocessing=True,
                           workers=CORES_COUNT,
                           callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
+
+
+# In[ ]:
+
+
+
 
