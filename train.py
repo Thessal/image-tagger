@@ -40,7 +40,7 @@ tags_topN_name = sorted([x["name"] for x in tags_topN])
 # sorted([x for x in tags_d if ("_chart" in x["name"]) and x['post_count']!='0'], key=lambda x:int(x["post_count"]), reverse=True)
 
 
-# In[4]:
+# In[ ]:
 
 
 # Get image metadata
@@ -82,7 +82,7 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
     metadata = [json.loads(line) for line in f.readlines()]
 
 
-# In[5]:
+# In[ ]:
 
 
 # Define model
@@ -137,13 +137,13 @@ model.compile(optimizer='adam',
 # sparse_softmax_cross_entropy_with_logits
 
 
-# In[6]:
+# In[ ]:
 
 
 # tf.keras.utils.plot_model(model.layers[3])
 
 
-# In[7]:
+# In[ ]:
 
 
 # layer_count = 0
@@ -155,7 +155,7 @@ model.compile(optimizer='adam',
 #         break
 
 
-# In[8]:
+# In[ ]:
 
 
 import requests
@@ -168,46 +168,53 @@ def _print(*args):
         print(*args)
     
 encoder = tf.keras.layers.CategoryEncoding(output_mode="multi_hot", num_tokens=N)
-def gen():
-    # TODO : shuffle
-    for info in train_set:
-        img_id = info["id"]
-        img_ext = info["file_ext"]
-        label = info["tags_"]
-        if len(label) < 3 :
-            _print(f"[error] {label}")
-            continue
-        
-        path = f'http://192.168.20.50/danbooru2021/512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
-        try:
-            response = requests.get(path)
-            image = response.content
-            if response.status_code != 200:
-                _print(f"[error] {path}")
-                continue        
-            if False:
-                path = f'./512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
-                if not os.path.exists(path):
+def gengen(data_set):
+    def gen():
+        # TODO : shuffle
+        for info in train_set:
+            img_id = info["id"]
+            img_ext = info["file_ext"]
+            label = info["tags_"]
+            if len(label) < 3 :
+                _print(f"[error] {label}")
+                continue
+
+            path = f'http://192.168.20.50/danbooru2021/512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
+            try:
+                response = requests.get(path)
+                image = response.content
+                if response.status_code != 200:
                     _print(f"[error] {path}")
-                    continue
-                image = tf.io.read_file(path)
-        except:
-            print(f"[Error] {path}")
+                    continue        
+                if False:
+                    path = f'./512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
+                    if not os.path.exists(path):
+                        _print(f"[error] {path}")
+                        continue
+                    image = tf.io.read_file(path)
+            except:
+                print(f"[Error] {path}")
 
-        image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
-        label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?
-        yield image, tf.squeeze(label_enc)
+            image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
+            label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?
+            yield image, tf.squeeze(label_enc)
+    return gen
     
-dataset_train = tf.data.Dataset.from_generator(
-    gen,
-    output_signature=(
-        tf.TensorSpec(shape=(512, 512, 3), dtype=tf.uint8),
-        tf.TensorSpec(shape=(1000), dtype=tf.float32),
-    )
+output_signature=(
+    tf.TensorSpec(shape=(512, 512, 3), dtype=tf.uint8),
+    tf.TensorSpec(shape=(1000), dtype=tf.float32),
 )
+dataset_train = tf.data.Dataset.from_generator( gengen(metadata[:-1000]), output_signature=output_signature)
+dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_signature=output_signature)
 
 
-# In[9]:
+# In[ ]:
+
+
+
+
+
+# In[ ]:
 
 
 # Freeze convolution layers
@@ -235,12 +242,12 @@ model.summary()
 
 #     train_dataset = train.cache().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
 #     train_dataset = train_dataset.prefetch(buffer_size=AUTOTUNE)
-TRAINING_BATCH_SIZE=64
-BUFFER_SIZE=TRAINING_BATCH_SIZE*2
-STEPS_PER_EPOCH=1000
+TRAINING_BATCH_SIZE=128
+BUFFER_SIZE=TRAINING_BATCH_SIZE*3
+STEPS_PER_EPOCH=(2**15)//TRAINING_BATCH_SIZE
 CORES_COUNT= 2
 EPOCHS = 3 * len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH
-UNFREEZE_EPOCH = 5
+UNFREEZE_EPOCH = len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH // 100
 
 # Checkpoints
 output_path = "./model"
@@ -265,8 +272,8 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
 # Train
 # train_dataset = dataset_train.take(100).shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
-train_dataset = dataset_train.shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
-test_dataset = dataset_train.batch(TRAINING_BATCH_SIZE)
+train_dataset = dataset_train.shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE).cache()
+test_dataset = dataset_test.shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE).cache()
 model_history = model.fit(train_dataset,
                           epochs=EPOCHS,
                           steps_per_epoch=STEPS_PER_EPOCH,
@@ -283,7 +290,13 @@ model_history = model.fit(train_dataset,
 # model.save(output_path+"/model_20221122_01")
 
 
-# In[13]:
+# In[ ]:
+
+
+
+
+
+# In[ ]:
 
 
 
