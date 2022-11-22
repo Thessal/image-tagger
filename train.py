@@ -8,7 +8,8 @@ import json
 import lzma, tarfile
 import tensorflow as tf
 import numpy as np
-from keras.layers import LeakyReLU
+import tensorflow_addons as tfa
+# from keras.layers import LeakyReLU
 import os 
 
 
@@ -81,7 +82,7 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
     metadata = [json.loads(line) for line in f.readlines()]
 
 
-# In[29]:
+# In[5]:
 
 
 # Define model
@@ -92,7 +93,7 @@ pretrained_model = tf.keras.applications.inception_v3.InceptionV3(
     input_shape=(299, 299, 3),
     pooling=None,
     classes=N,
-    classifier_activation='softmax'#LeakyReLU(alpha=0.05)
+    classifier_activation='softmax'
 )
 
 custom_model = tf.keras.applications.inception_v3.InceptionV3(
@@ -102,7 +103,7 @@ custom_model = tf.keras.applications.inception_v3.InceptionV3(
     input_shape=(299, 299, 3),
     pooling=None,
     classes=N,
-    classifier_activation=LeakyReLU(alpha=0.05)
+    classifier_activation=tfa.layers.Sparsemax()
 )
 
 getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
@@ -123,8 +124,6 @@ result = trim_model(adapter_pooling(adapter_conv2d(adapter_input)))
 
 resized_model = tf.keras.Model(inputs=adapter_input, outputs=result)
 model = resized_model
-# model.summary()
-# trim_model.summary()
 
 model.compile(optimizer='adam',
 #               loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
@@ -138,7 +137,25 @@ model.compile(optimizer='adam',
 # sparse_softmax_cross_entropy_with_logits
 
 
-# In[30]:
+# In[6]:
+
+
+# tf.keras.utils.plot_model(model.layers[3])
+
+
+# In[7]:
+
+
+# layer_count = 0
+# for layer in model.layers[3].layers:
+#     if layer.name.startswith("mixed"):
+#         layer_count += 1
+#         print(layer.name)
+#     if layer_count > 8:
+#         break
+
+
+# In[8]:
 
 
 import requests
@@ -162,17 +179,20 @@ def gen():
             continue
         
         path = f'http://192.168.20.50/danbooru2021/512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
-        response = requests.get(path)
-        image = response.content
-        if response.status_code != 200:
-            _print(f"[error] {path}")
-            continue        
-        if False:
-            path = f'./512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
-            if not os.path.exists(path):
+        try:
+            response = requests.get(path)
+            image = response.content
+            if response.status_code != 200:
                 _print(f"[error] {path}")
-                continue
-            image = tf.io.read_file(path)
+                continue        
+            if False:
+                path = f'./512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
+                if not os.path.exists(path):
+                    _print(f"[error] {path}")
+                    continue
+                image = tf.io.read_file(path)
+        except:
+            print(f"[Error] {path}")
 
         image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
         label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?
@@ -187,22 +207,30 @@ dataset_train = tf.data.Dataset.from_generator(
 )
 
 
-# In[35]:
+# In[9]:
 
 
 # Freeze convolution layers
-model.summary()
 
 def freeze(unfreeze=False):
+    layer_count = 0
     for layer in model.layers[3].layers:
+        if layer.name.startswith("mixed"):
+            layer_count += 1
         if layer.name.startswith("conv2d"):
-            layer.trainable = True if unfreeze else False
+            layer.trainable = True if unfreeze else False        
+        if layer_count > 8:
+            break
 
+# freeze()
+# model.summary()
+# freeze(unfreeze=True)
+# model.summary()
 freeze()
 model.summary()
 
 
-# In[28]:
+# In[ ]:
 
 
 #     train_dataset = train.cache().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
@@ -212,7 +240,7 @@ BUFFER_SIZE=TRAINING_BATCH_SIZE*2
 STEPS_PER_EPOCH=1000
 CORES_COUNT= 2
 EPOCHS = 3 * len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH
-UNFREEZE_EPOCH = EPOCHS//10
+UNFREEZE_EPOCH = 5
 
 # Checkpoints
 output_path = "./model"
@@ -224,12 +252,13 @@ class DisplayCallback(tf.keras.callbacks.Callback):
             os.makedirs(output_path)
         with open (f"{output_path}/loss_{epoch}.json", "w") as f :
             f.write(json.dumps(logs))
-        if epoch > UNFREEZE_EPOCH:
+        if epoch == UNFREEZE_EPOCH:
             print("UNFREEZING")
             freeze(unfreeze=True)
         #model.save(output_path)                    
 filepath=output_path+"/weights-improvement-{epoch:02d}-{val_accuracy:.2f}.hdf5"
-checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
+# checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
+checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_kullback_leibler_divergence', verbose=1, save_best_only=True, mode='min')
 logdir = "./tensorboard-logs"
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
@@ -246,6 +275,18 @@ model_history = model.fit(train_dataset,
                           use_multiprocessing=True,
                           workers=CORES_COUNT,
                           callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
+
+
+# In[ ]:
+
+
+# model.save(output_path+"/model_20221122_01")
+
+
+# In[13]:
+
+
+
 
 
 # In[ ]:
