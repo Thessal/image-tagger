@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[3]:
 
 
 import json
@@ -11,9 +11,23 @@ import numpy as np
 import tensorflow_addons as tfa
 # from keras.layers import LeakyReLU
 import os 
+from datetime import datetime
 
 
-# In[2]:
+# In[4]:
+
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+#             tf.config.experimental.set_virtual_device_configuration(gpus[0], [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024)])
+    except RuntimeError as e:
+        print(e)
+
+
+# In[5]:
 
 
 ## Parameters
@@ -23,7 +37,7 @@ IMAGE_SIZE = 512
 VERBOSE = False
 
 
-# In[3]:
+# In[6]:
 
 
 # Get tag list
@@ -39,7 +53,7 @@ tags_topN_name = sorted([x["name"] for x in tags_topN])
 # sorted([x for x in tags_d if ("_chart" in x["name"]) and x['post_count']!='0'], key=lambda x:int(x["post_count"]), reverse=True)
 
 
-# In[ ]:
+# In[7]:
 
 
 # Get image metadata
@@ -81,7 +95,7 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
     metadata = [json.loads(line) for line in f.readlines()]
 
 
-# In[ ]:
+# In[8]:
 
 
 # # Define model
@@ -133,13 +147,13 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
 #                   tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None),
 #                   tf.keras.losses.CategoricalCrossentropy(from_logits=True),
 #                   tfa.losses.SigmoidFocalCrossEntropy(),
-#                   tfa.losses.SparsemaxLoss(),
+#                   tfa.losses.SparsemaxLoss(), # logits
 #               ],
 #              )
 # # sparse_softmax_cross_entropy_with_logits
 
 
-# In[ ]:
+# In[14]:
 
 
 # Define model
@@ -160,7 +174,8 @@ custom_model = tf.keras.applications.inception_v3.InceptionV3(
     input_shape=(299, 299, 3),
     pooling=None,
     classes=N,
-    classifier_activation=tfa.layers.Sparsemax()
+#     classifier_activation=tfa.layers.Sparsemax()
+    classifier_activation=tf.keras.Sequential([ tf.keras.layers.Softmax(), tf.keras.layers.ThresholdedReLU(theta=0.5), tf.keras.layers.Lambda(lambda x : x * 2) ])
 )
 
 getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
@@ -180,9 +195,9 @@ adapter_resize = tf.keras.layers.Resizing(299,299)
 
 ####
 ## (A) softmax
-model = pretrained_model
+# model = pretrained_model
 ## (B) Sparsemax
-# model = custom_model
+model = custom_model
 ####
 ## (A) Convolution resize
 # trim_model = tf.keras.Model(inputs=model.layers[2].input, outputs=custom_model.output)
@@ -200,13 +215,16 @@ model.compile(optimizer='adam',
                   tf.keras.losses.CategoricalCrossentropy(from_logits=False),
                   tfa.losses.SigmoidFocalCrossEntropy(),
                   tfa.losses.SparsemaxLoss(),
+                  tf.keras.losses.MeanAbsoluteError(),
+                  tf.keras.metrics.SparseTopKCategoricalAccuracy(k=5),
+                  tf.keras.losses.Huber(delta=1.0),
               ],
              )
 
 # tf.keras.utils.plot_model(model.layers[3])
 
 
-# In[ ]:
+# In[15]:
 
 
 import requests
@@ -257,7 +275,7 @@ dataset_train = tf.data.Dataset.from_generator( gengen(metadata[:-1000]), output
 dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_signature=output_signature)
 
 
-# In[ ]:
+# In[16]:
 
 
 # Freeze convolution layers
@@ -273,7 +291,7 @@ def freeze(unfreeze=False):
             break
 
 
-# In[ ]:
+# In[17]:
 
 
 TRAINING_BATCH_SIZE=128
@@ -281,7 +299,7 @@ BUFFER_SIZE=TRAINING_BATCH_SIZE*3
 STEPS_PER_EPOCH=(2**15)//TRAINING_BATCH_SIZE
 CORES_COUNT= 2
 EPOCHS = 3 * len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH
-UNFREEZE_EPOCH = len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH // 10
+UNFREEZE_EPOCH = len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH // 30
 
 # Checkpoints
 output_path = "./model"
@@ -337,4 +355,10 @@ model_history = model.fit(train_dataset,
 
 
 model.save(f"{output_path}/model_{model.history.epoch[-1]}_{datetime.isoformat(datetime.now())}")
+
+
+# In[ ]:
+
+
+
 
