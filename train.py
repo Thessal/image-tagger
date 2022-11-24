@@ -1,6 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[ ]:
+
+
+pip install tensorflow-probability==0.16.0
+
+
 # In[3]:
 
 
@@ -12,6 +18,9 @@ import tensorflow_addons as tfa
 # from keras.layers import LeakyReLU
 import os 
 from datetime import datetime
+
+import matplotlib.pyplot as plt
+import tensorflow_probability as tfp
 
 
 # In[4]:
@@ -153,7 +162,28 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
 # # sparse_softmax_cross_entropy_with_logits
 
 
-# In[29]:
+# In[92]:
+
+
+
+# activation = #tf.keras.layers.Lambda(lambda tensor : tf.keras.layers.ThresholdedReLU(theta=0.5)(tf.keras.layers.Softmax()(tensor))*2 )
+def activation_function(tensor):
+    prob = tf.keras.activations.softmax(tensor)
+    scale = tf.reduce_max(prob) 
+    thres_max = tfp.stats.percentile(prob, q=80.)
+    thres_min = tfp.stats.percentile(prob, q=20.)
+    saturate = 0.2
+    averse = 10
+    return prob + (saturate-1) * tf.clip_by_value(prob, thres_max, scale) + (averse-1) * tf.clip_by_value(prob, -thres_max, thres_min)
+
+# activation = tf.keras.layers.Lambda(lambda tensor : tf.keras.activations.relu(10*tf.keras.activations.softmax(tensor)) )
+activation = tf.keras.layers.Lambda(activation_function)
+test_x = np.arange(-1,2,0.1)[np.newaxis,:]
+test_y = activation(tf.convert_to_tensor(test_x)).numpy()
+plt.plot(test_x[0],test_y[0])
+
+
+# In[93]:
 
 
 # Define model
@@ -174,9 +204,8 @@ custom_model = tf.keras.applications.inception_v3.InceptionV3(
     input_shape=(299, 299, 3),
     pooling=None,
     classes=N,
-#     classifier_activation=tfa.layers.Sparsemax(),
-    classifier_activation=tf.keras.Sequential([ tf.keras.layers.Softmax(), tf.keras.layers.ThresholdedReLU(theta=0.5), tf.keras.layers.Lambda(lambda x : x * 2) ])
-    # More complex activation would be possible using tf.keras.layers.Lambda
+    classifier_activation=activation,
+    # Or, tf.keras.layers.Lambda(lambda tensor : tf.keras.layers.ThresholdedReLU(theta=0.5)(tf.keras.layers.Softmax()(tensor))*2 )
 )
 
 getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
@@ -225,7 +254,7 @@ model.compile(optimizer='adam',
 # tf.keras.utils.plot_model(model.layers[3])
 
 
-# In[30]:
+# In[94]:
 
 
 import requests
@@ -276,7 +305,7 @@ dataset_train = tf.data.Dataset.from_generator( gengen(metadata[:-1000]), output
 dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_signature=output_signature)
 
 
-# In[31]:
+# In[95]:
 
 
 # Freeze convolution layers
@@ -292,7 +321,7 @@ def freeze(unfreeze=False):
             break
 
 
-# In[32]:
+# In[96]:
 
 
 TRAINING_BATCH_SIZE=128
@@ -356,6 +385,12 @@ model_history = model.fit(train_dataset,
 
 
 model.save(f"{output_path}/model_{model.history.epoch[-1]}_{datetime.isoformat(datetime.now())}")
+
+
+# In[ ]:
+
+
+print("test")
 
 
 # In[ ]:
