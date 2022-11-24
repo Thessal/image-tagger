@@ -20,7 +20,6 @@ import os
 # top tags
 N = 1000
 IMAGE_SIZE = 512
-
 VERBOSE = False
 
 
@@ -85,6 +84,64 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
 # In[ ]:
 
 
+# # Define model
+# pretrained_model = tf.keras.applications.inception_v3.InceptionV3(
+#     include_top=True,
+#     weights='imagenet',
+#     input_tensor=None,
+#     input_shape=(299, 299, 3),
+#     pooling=None,
+#     classes=N,
+#     classifier_activation='softmax'
+# )
+
+# custom_model = tf.keras.applications.inception_v3.InceptionV3(
+#     include_top=True,
+#     weights=None,
+#     input_tensor=None,
+#     input_shape=(299, 299, 3),
+#     pooling=None,
+#     classes=N,
+#     classifier_activation=tfa.layers.Sparsemax()
+# )
+
+# getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
+# for src, tgt in zip(pretrained_model.layers, custom_model.layers):
+#     if ("activation" not in src.name):
+#         try:
+#             assert (getname(src.name) == getname(tgt.name))
+#         except:
+#             print(src.name, tgt.name)
+#             raise Exception
+#         tgt.set_weights(src.get_weights())
+
+# adapter_input = tf.keras.Input((512,512,3))
+# adapter_conv2d = tf.keras.layers.Conv2D(strides=(3,3),filters=32,padding='valid',kernel_size=(16,16))
+# adapter_pooling = tf.keras.layers.MaxPooling2D(pool_size=(18, 18), strides=(1, 1), padding='valid')
+# trim_model = tf.keras.Model(inputs=custom_model.layers[2].input, outputs=custom_model.output)
+# result = trim_model(adapter_pooling(adapter_conv2d(adapter_input)))
+
+# resized_model = tf.keras.Model(inputs=adapter_input, outputs=result)
+# model = resized_model
+
+# model.compile(optimizer='adam',
+# #               loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+#               loss=tfa.losses.SigmoidFocalCrossEntropy(),
+#               metrics=[
+#                   #tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy_sparse', dtype=None),
+#                   tf.keras.metrics.KLDivergence(),
+#                   tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None),
+#                   tf.keras.losses.CategoricalCrossentropy(from_logits=True),
+#                   tfa.losses.SigmoidFocalCrossEntropy(),
+#                   tfa.losses.SparsemaxLoss(),
+#               ],
+#              )
+# # sparse_softmax_cross_entropy_with_logits
+
+
+# In[ ]:
+
+
 # Define model
 pretrained_model = tf.keras.applications.inception_v3.InceptionV3(
     include_top=True,
@@ -119,26 +176,32 @@ for src, tgt in zip(pretrained_model.layers, custom_model.layers):
 adapter_input = tf.keras.Input((512,512,3))
 adapter_conv2d = tf.keras.layers.Conv2D(strides=(3,3),filters=32,padding='valid',kernel_size=(16,16))
 adapter_pooling = tf.keras.layers.MaxPooling2D(pool_size=(18, 18), strides=(1, 1), padding='valid')
-trim_model = tf.keras.Model(inputs=custom_model.layers[2].input, outputs=custom_model.output)
-result = trim_model(adapter_pooling(adapter_conv2d(adapter_input)))
+adapter_resize = tf.keras.layers.Resizing(299,299)
 
-resized_model = tf.keras.Model(inputs=adapter_input, outputs=result)
-model = resized_model
+####
+## (A) softmax
+model = pretrained_model
+## (B) Sparsemax
+# model = custom_model
+####
+## (A) Convolution resize
+# trim_model = tf.keras.Model(inputs=model.layers[2].input, outputs=custom_model.output)
+# result = trim_model(adapter_pooling(adapter_conv2d(adapter_input)))
+## (B) Simple resize
+result = model(adapter_resize(adapter_input))
+####
 
+model = tf.keras.Model(inputs=adapter_input, outputs=result)
 model.compile(optimizer='adam',
-#               loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
-              loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+              loss=tfa.losses.SigmoidFocalCrossEntropy(),
               metrics=[
-                  #tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy_sparse', dtype=None),
                   tf.keras.metrics.KLDivergence(),
                   tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None),
+                  tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+                  tfa.losses.SigmoidFocalCrossEntropy(),
+                  tfa.losses.SparsemaxLoss(),
               ],
              )
-# sparse_softmax_cross_entropy_with_logits
-
-
-# In[ ]:
-
 
 # tf.keras.utils.plot_model(model.layers[3])
 
@@ -146,22 +209,8 @@ model.compile(optimizer='adam',
 # In[ ]:
 
 
-# layer_count = 0
-# for layer in model.layers[3].layers:
-#     if layer.name.startswith("mixed"):
-#         layer_count += 1
-#         print(layer.name)
-#     if layer_count > 8:
-#         break
-
-
-# In[ ]:
-
-
 import requests
-# train_set = zip(files_lst[:100], labels_lst[:100])
-# train_set = [(x["id"],x["tags_"]) for x in metadata[:100]]
-train_set = metadata#[:10000]
+train_set = metadata
 
 def _print(*args):
     if VERBOSE:
@@ -211,70 +260,70 @@ dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_s
 # In[ ]:
 
 
-
-
-
-# In[ ]:
-
-
 # Freeze convolution layers
-
 def freeze(unfreeze=False):
     layer_count = 0
-    for layer in model.layers[3].layers:
+    for layer in model.layers[-1].layers:
         if layer.name.startswith("mixed"):
             layer_count += 1
         if layer.name.startswith("conv2d"):
-            layer.trainable = True if unfreeze else False        
+            layer.trainable = True if unfreeze else False
         if layer_count > 8:
+            # Do not freeze leaf convolution layer
             break
-
-# freeze()
-# model.summary()
-# freeze(unfreeze=True)
-# model.summary()
-freeze()
-model.summary()
 
 
 # In[ ]:
 
 
-#     train_dataset = train.cache().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
-#     train_dataset = train_dataset.prefetch(buffer_size=AUTOTUNE)
 TRAINING_BATCH_SIZE=128
 BUFFER_SIZE=TRAINING_BATCH_SIZE*3
 STEPS_PER_EPOCH=(2**15)//TRAINING_BATCH_SIZE
 CORES_COUNT= 2
 EPOCHS = 3 * len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH
-UNFREEZE_EPOCH = len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH // 100
+UNFREEZE_EPOCH = len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH // 10
 
 # Checkpoints
 output_path = "./model"
 class DisplayCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
-        # print(logs)
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         with open (f"{output_path}/loss_{epoch}.json", "w") as f :
-            f.write(json.dumps(logs))
-        if epoch == UNFREEZE_EPOCH:
-            print("UNFREEZING")
-            freeze(unfreeze=True)
-        #model.save(output_path)                    
+            f.write(json.dumps(logs))           
 filepath=output_path+"/weights-improvement-{epoch:02d}-{val_accuracy:.2f}.hdf5"
 # checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
 checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_kullback_leibler_divergence', verbose=1, save_best_only=True, mode='min')
-logdir = "./tensorboard-logs"
+logdir = f"./tensorboard-logs/{datetime.isoformat(datetime.now())}"
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
+train_dataset = dataset_train.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)#.cache()
+test_dataset = dataset_test.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)#.cache()
 
-# Train
-# train_dataset = dataset_train.take(100).shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
-train_dataset = dataset_train.shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE).cache()
-test_dataset = dataset_test.shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE).cache()
+
+# In[ ]:
+
+
+freeze()
+model.summary()
 model_history = model.fit(train_dataset,
+                          epochs=UNFREEZE_EPOCH,
+                          steps_per_epoch=STEPS_PER_EPOCH,
+                          validation_data=test_dataset,
+                          validation_steps=1+STEPS_PER_EPOCH//10,
+                          use_multiprocessing=True,
+                          workers=CORES_COUNT,
+                          callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
+
+
+# In[ ]:
+
+
+freeze(unfreeze=True)
+model.summary()
+model_history = model.fit(train_dataset,
+                          initial_epoch=UNFREEZE_EPOCH,
                           epochs=EPOCHS,
                           steps_per_epoch=STEPS_PER_EPOCH,
                           validation_data=test_dataset,
@@ -287,23 +336,5 @@ model_history = model.fit(train_dataset,
 # In[ ]:
 
 
-# model.save(output_path+"/model_20221122_01")
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
+model.save(f"{output_path}/model_{model.history.epoch[-1]}_{datetime.isoformat(datetime.now())}")
 
