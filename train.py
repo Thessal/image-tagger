@@ -153,7 +153,7 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
 # # sparse_softmax_cross_entropy_with_logits
 
 
-# In[14]:
+# In[29]:
 
 
 # Define model
@@ -174,8 +174,9 @@ custom_model = tf.keras.applications.inception_v3.InceptionV3(
     input_shape=(299, 299, 3),
     pooling=None,
     classes=N,
-#     classifier_activation=tfa.layers.Sparsemax()
+#     classifier_activation=tfa.layers.Sparsemax(),
     classifier_activation=tf.keras.Sequential([ tf.keras.layers.Softmax(), tf.keras.layers.ThresholdedReLU(theta=0.5), tf.keras.layers.Lambda(lambda x : x * 2) ])
+    # More complex activation would be possible using tf.keras.layers.Lambda
 )
 
 getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
@@ -216,7 +217,7 @@ model.compile(optimizer='adam',
                   tfa.losses.SigmoidFocalCrossEntropy(),
                   tfa.losses.SparsemaxLoss(),
                   tf.keras.losses.MeanAbsoluteError(),
-                  tf.keras.metrics.SparseTopKCategoricalAccuracy(k=5),
+#                   tf.keras.metrics.SparseTopKCategoricalAccuracy(k=5),
                   tf.keras.losses.Huber(delta=1.0),
               ],
              )
@@ -224,7 +225,7 @@ model.compile(optimizer='adam',
 # tf.keras.utils.plot_model(model.layers[3])
 
 
-# In[15]:
+# In[30]:
 
 
 import requests
@@ -275,7 +276,7 @@ dataset_train = tf.data.Dataset.from_generator( gengen(metadata[:-1000]), output
 dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_signature=output_signature)
 
 
-# In[16]:
+# In[31]:
 
 
 # Freeze convolution layers
@@ -291,7 +292,7 @@ def freeze(unfreeze=False):
             break
 
 
-# In[17]:
+# In[32]:
 
 
 TRAINING_BATCH_SIZE=128
