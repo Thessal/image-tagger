@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 pip install tensorflow-probability==0.16.0
 
 
-# In[3]:
+# In[2]:
 
 
 import json
@@ -23,8 +23,11 @@ import matplotlib.pyplot as plt
 import tensorflow_probability as tfp
 
 
-# In[4]:
+# In[3]:
 
+
+
+# tf.config.set_visible_devices([], 'GPU')
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -36,7 +39,7 @@ if gpus:
         print(e)
 
 
-# In[5]:
+# In[4]:
 
 
 ## Parameters
@@ -46,7 +49,7 @@ IMAGE_SIZE = 512
 VERBOSE = False
 
 
-# In[6]:
+# In[5]:
 
 
 # Get tag list
@@ -62,7 +65,7 @@ tags_topN_name = sorted([x["name"] for x in tags_topN])
 # sorted([x for x in tags_d if ("_chart" in x["name"]) and x['post_count']!='0'], key=lambda x:int(x["post_count"]), reverse=True)
 
 
-# In[7]:
+# In[6]:
 
 
 # Get image metadata
@@ -104,7 +107,7 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
     metadata = [json.loads(line) for line in f.readlines()]
 
 
-# In[8]:
+# In[7]:
 
 
 # # Define model
@@ -162,7 +165,7 @@ with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
 # # sparse_softmax_cross_entropy_with_logits
 
 
-# In[92]:
+# In[15]:
 
 
 
@@ -183,7 +186,80 @@ test_y = activation(tf.convert_to_tensor(test_x)).numpy()
 plt.plot(test_x[0],test_y[0])
 
 
-# In[93]:
+# In[16]:
+
+
+def attention_reshape(image_batch):
+    # Reshapes input image
+    assert image_batch.dtype==tf.float32
+    patches = tf.image.extract_patches(
+                images=image_batch,
+                sizes=[1, 149, 149, 1],
+                strides=[1, 121, 121, 1],
+                rates=[1, 1, 1, 1],
+                padding="VALID",
+            )
+    patches = tf.reshape(patches,(-1,4,4,149,149,3))
+    attention = tf.keras.layers.MultiHeadAttention(
+        num_heads=4,
+        key_dim=3,
+        value_dim=None,
+        dropout=0.0,
+        use_bias=True,
+        output_shape=2,
+        attention_axes=(1,2),
+        kernel_initializer='glorot_uniform',
+        bias_initializer='zeros',
+        kernel_regularizer=None,
+        bias_regularizer=None,
+        activity_regularizer=None,
+        kernel_constraint=None,
+        bias_constraint=None,
+    )
+    self_attention = attention(patches,patches)
+    self_attention_stack = tf.reshape(tf.einsum('bYXyxc->byxYXc', self_attention), (10,149,149,32))
+    return self_attention_stack
+
+
+# In[73]:
+
+
+def patch_model(model, adapter_input):
+    # Divide and conquer
+    adapter_input_resize = tf.keras.layers.Resizing(1024,1024)(adapter_input) # FIXME
+    embed = tf.keras.Model(inputs=model.input, outputs=model.layers[-1].input)
+    patches = tf.image.extract_patches(
+                images=adapter_input_resize,
+                sizes=[1, 299, 299, 1], # model input size
+                strides=[1, 121, 121, 1], # patch size
+                rates=[1, 1, 1, 1],
+                padding="VALID",
+            )
+    patches = tf.reshape(patches,(-1,299,299,3))
+    vectors = tf.reshape(embed(patches), (-1,6*6,2048))
+    attention = tf.keras.layers.MultiHeadAttention(
+        num_heads=6,
+        key_dim=3, # TODO : Tune
+        value_dim=None,
+        dropout=0.0,
+        use_bias=True,
+        output_shape=None,
+        attention_axes=(1),
+        kernel_initializer='glorot_uniform',
+        bias_initializer='zeros',
+        kernel_regularizer=None,
+        bias_regularizer=None,
+        activity_regularizer=None,
+        kernel_constraint=None,
+        bias_constraint=None,
+    )
+    self_attention = attention(vectors,vectors)
+    result = model.layers[-1](tf.keras.layers.AveragePooling1D(pool_size=6*6,data_format="channels_last")(self_attention))
+    result = tf.einsum("abc->ac", result)
+    return result
+
+
+# In[74]:
 
 
 # Define model
@@ -225,15 +301,20 @@ adapter_resize = tf.keras.layers.Resizing(299,299)
 
 ####
 ## (A) softmax
-# model = pretrained_model
+base_model = pretrained_model
 ## (B) Sparsemax
-model = custom_model
+# base_model = custom_model
 ####
 ## (A) Convolution resize
-# trim_model = tf.keras.Model(inputs=model.layers[2].input, outputs=custom_model.output)
+# trim_model = tf.keras.Model(inputs=base_model.layers[2].input, outputs=base_model.output)
 # result = trim_model(adapter_pooling(adapter_conv2d(adapter_input)))
 ## (B) Simple resize
-result = model(adapter_resize(adapter_input))
+# result = base_model(adapter_resize(adapter_input))
+## (C) Attention resize
+# trim_model = tf.keras.Model(inputs=base_model.layers[2].input, outputs=base_model.output)
+# result = trim_model(attention_reshape(adapter_input))
+## (D) Patch attention
+result = patch_model(base_model, adapter_input)
 ####
 
 model = tf.keras.Model(inputs=adapter_input, outputs=result)
@@ -254,7 +335,13 @@ model.compile(optimizer='adam',
 # tf.keras.utils.plot_model(model.layers[3])
 
 
-# In[94]:
+# In[ ]:
+
+
+
+
+
+# In[75]:
 
 
 import requests
@@ -305,26 +392,24 @@ dataset_train = tf.data.Dataset.from_generator( gengen(metadata[:-1000]), output
 dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_signature=output_signature)
 
 
-# In[95]:
+# In[76]:
 
 
-# Freeze convolution layers
-def freeze(unfreeze=False):
-    layer_count = 0
-    for layer in model.layers[-1].layers:
-        if layer.name.startswith("mixed"):
-            layer_count += 1
-        if layer.name.startswith("conv2d"):
-            layer.trainable = True if unfreeze else False
-        if layer_count > 8:
-            # Do not freeze leaf convolution layer
-            break
+def freeze(model, unfreeze=False):
+    # Freeze convolution layers only
+    for layer in model.layers:
+        if 'layers' in layer.__dict__:
+            # TODO : avoid duplicate freeze for same layer
+            freeze(layer.layers, unfreeze)
+        else:
+            if layer.name.startswith("conv2d"):
+                layer.trainable = True if unfreeze else False
 
 
-# In[96]:
+# In[87]:
 
 
-TRAINING_BATCH_SIZE=128
+TRAINING_BATCH_SIZE=4
 BUFFER_SIZE=TRAINING_BATCH_SIZE*3
 STEPS_PER_EPOCH=(2**15)//TRAINING_BATCH_SIZE
 CORES_COUNT= 2
@@ -350,11 +435,11 @@ train_dataset = dataset_train.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH
 test_dataset = dataset_test.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)#.cache()
 
 
-# In[ ]:
+# In[88]:
 
 
-freeze()
-model.summary()
+freeze(base_model)
+my_model.summary()
 model_history = model.fit(train_dataset,
                           epochs=UNFREEZE_EPOCH,
                           steps_per_epoch=STEPS_PER_EPOCH,
@@ -368,8 +453,8 @@ model_history = model.fit(train_dataset,
 # In[ ]:
 
 
-freeze(unfreeze=True)
-model.summary()
+freeze(base_model,unfreeze=True)
+my_model.summary()
 model_history = model.fit(train_dataset,
                           initial_epoch=UNFREEZE_EPOCH,
                           epochs=EPOCHS,
