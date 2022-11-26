@@ -403,12 +403,11 @@ def gengen(data_set):
                         _print(f"[error] {path}")
                         continue
                     image = tf.io.read_file(path)
+                image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
+                label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?                
+                yield image, tf.squeeze(label_enc)
             except:
                 print(f"[Error] {path}")
-
-            image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
-            label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?
-            yield image, tf.squeeze(label_enc)
     return gen
     
 output_signature=(
@@ -498,15 +497,6 @@ model_history = model.fit(train_dataset,
                           callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
 
 
-# In[18]:
-
-
-# model.save(f"{output_path}/model_{datetime.isoformat(datetime.now())}_{model.history.epoch[-1]}")
-# model.save_weights("./weights.hdf5")
-# model.save_weights("./model/weights-improvement-32-0.27.hdf5")
-# dataset_train = tf.data.Dataset.from_generator( gengen(metadata[256*22*128:-1000]), output_signature=output_signature)
-
-
 # In[20]:
 
 
@@ -552,9 +542,12 @@ class WeightKCategoricalCrossEntropy(tf.keras.metrics.MeanMetricWrapper):
             name,
             dtype=dtype,
         )
+        
+checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
 
-model.compile(optimizer='nadam', # SGD
-              loss=tfa.losses.SparsemaxLoss(),
+model.compile(optimizer='adam', #'nadam', # SGD
+              loss=[tfa.losses.SparsemaxLoss(),tfa.losses.SigmoidFocalCrossEntropy()], # exploit vs explore
+              loss_weights=[0.5,0.5],
               metrics=[
                   tf.keras.metrics.KLDivergence(),
                   #tf.keras.losses.CategoricalCrossentropy(from_logits=False),
@@ -578,38 +571,7 @@ model_history = model.fit(train_dataset,
                           callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
 
 
-# In[ ]:
+# In[80]:
 
 
 model.save_weights("./weights.hdf5")
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-print("test")
-
-
-# In[ ]:
-
-
-
-
