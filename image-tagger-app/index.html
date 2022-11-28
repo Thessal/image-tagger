@@ -1,3 +1,93 @@
 <html>
-	TEST
+	<input type="file" id="image-input" accept="image/jpeg, image/png, image/jpg">
+	<div>
+		<canvas id="canvas-image" style="width: 299px; height: 299px; border: 1px solid black;"/>
+	</div>
+	<div>
+		<p id="status"></p>
+	</div>
+	<div id="result-div"></div>
+
+	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js" type="text/javascript"></script>
+
+	<!-- Import the page's JavaScript to do some stuff -->
+
+	<script type="text/javascript">
+		const tags = ['!', '+_+', '...', '1boy', '1girl', '1other', '2boys', '2girls', '3boys', '3girls', '4boys', '4girls', '4koma', '5girls', '6+boys', '6+girls', ':3', ':<', ':d', ':o', ':p', ':q', ';d', '=_=', '>_<', '?', '^^^', '^_^', 'abs', 'abyssal_ship', 'adapted_costume', 'after_sex', 'ahoge', 'alcohol', 'all_fours', 'alternate_costume', 'alternate_hairstyle', 'anal', 'androgynous', 'anger_vein', 'angry', 'animal', 'animal_ear_fluff', 'animal_ears', 'animal_print', 'antenna_hair', 'anus', 'apron', 'aqua_eyes', 'aqua_hair', 'areola_slip', 'areolae', 'arm_at_side', 'arm_behind_back', 'arm_behind_head', 'arm_support', 'arm_up', 'armband', 'armlet', 'armor', 'armpits', 'arms_behind_back', 'arms_behind_head', 'arms_up', 'artist_name', 'ascot', 'ass', 'ass_visible_through_thighs', 'asymmetrical_legwear', 'back', 'backlighting', 'backpack', 'bag', 'ball', 'bandages', 'bandaid', 'bangs', 'bar_censor', 'bara', 'bare_arms', 'bare_legs', 'bare_shoulders', 'barefoot', 'baseball_cap', 'bat_wings', 'bdsm', 'beach', 'beard', 'bed', 'bed_sheet', 'bell', 'belt', 'bent_over', 'beret', 'bespectacled', 'between_breasts', 'between_legs', 'bike_shorts', 'bikini', 'bikini_top', 'bird', 'black-framed_eyewear', 'black_background', 'black_bikini', 'black_bow', 'black_bra', 'black_choker', 'black_dress', 'black_eyes', 'black_footwear', 'black_gloves', 'black_hair', 'black_hairband', 'black_headwear', 'black_jacket', 'black_legwear', 'black_leotard', 'black_nails', 'black_necktie', 'black_panties', 'black_pants', 'black_ribbon', 'black_serafuku', 'black_shirt', 'black_shorts', 'black_skirt', 'black_wings', 'blazer', 'blonde_hair', 'blood', 'blouse', 'blue_background', 'blue_bikini', 'blue_bow', 'blue_dress', 'blue_eyes', 'blue_hair', 'blue_headwear', 'blue_jacket', 'blue_legwear', 'blue_ribbon', 'blue_sailor_collar', 'blue_shirt', 'blue_skirt', 'blue_sky', 'blue_theme', 'blunt_bangs', 'blurry', 'blurry_background', 'blush', 'blush_stickers', 'bob_cut', 'bodysuit', 'bondage', 'book', 'boots', 'border', 'bottle', 'bottomless', 'bound', 'bow', 'bow_panties', 'bowl', 'bowtie', 'box', 'bra', 'bracelet', 'braid', 'breast_grab', 'breast_hold', 'breast_press', 'breasts', 'breasts_apart', 'breasts_outside', 'breath', 'bridal_gauntlets', 'bright_pupils', 'brooch', 'broom', 'brown_background', 'brown_eyes', 'brown_footwear', 'brown_gloves', 'brown_hair', 'brown_legwear', 'bubble', 'buckle', 'bug', 'building', 'buruma', 'butterfly', 'buttons', 'cake', 'cameltoe', 'camisole', 'candy', 'cape', 'capelet', 'cardigan', 'carrying', 'casual', 'cat', 'cat_ears', 'cat_girl', 'cat_tail', 'cellphone', 'censored', 'chain', 'chair', 'character_name', 'cherry_blossoms', 'chibi', 'child', 'china_dress', 'chinese_clothes', 'choker', 'christmas', 'claws', 'cleavage', 'cleavage_cutout', 'clenched_hand', 'clenched_hands', 'clenched_teeth', 'cloak', 'close-up', 'closed_eyes', 'closed_mouth', 'clothed_sex', 'clothes_lift', 'clothes_pull', 'clothes_writing', 'clothing_aside', 'clothing_cutout', 'cloud', 'cloudy_sky', 'coat', 'collar', 'collarbone', 'collared_shirt', 'colored_skin', 'comic', 'completely_nude', 'condom', 'contrapposto', 'convenient_censoring', 'copyright_name', 'corset', 'cosplay', 'couch', 'couple', 'cover', 'cover_page', 'covered_navel', 'covered_nipples', 'covering', 'cowboy_shot', 'cowgirl_position', 'crescent', 'crop_top', 'cropped_legs', 'cross', 'cross-laced_footwear', 'crossdressing', 'crossed_arms', 'crossed_legs', 'crossover', 'crown', 'crying', 'cuffs', 'cum', 'cum_in_mouth', 'cum_in_pussy', 'cum_on_body', 'cum_on_breasts', 'cumdrip', 'cup', 'curly_hair', 'curtains', 'curvy', 'dark-skinned_female', 'dark-skinned_male', 'dark_skin', 'dated', 'day', 'demon_girl', 'demon_horns', 'demon_tail', 'demon_wings', 'denim', 'denim_shorts', 'depth_of_field', 'desk', 'detached_collar', 'detached_sleeves', 'dog', 'dog_ears', 'doggystyle', 'double_bun', 'doujin_cover', 'dress', 'dress_lift', 'dress_shirt', 'drill_hair', 'drinking_glass', 'drooling', 'dual_persona', 'dual_wielding', 'dutch_angle', 'ear_piercing', 'earrings', 'eating', 'ejaculation', 'elbow_gloves', 'elf', 'embarrassed', 'emphasis_lines', 'empty_eyes', 'english_text', 'epaulettes', 'erection', 'expressionless', 'extra_ears', 'eye_contact', 'eyebrows', 'eyebrows_visible_through_hair', 'eyelashes', 'eyepatch', 'eyes_visible_through_hair', 'eyeshadow', 'eyewear_on_head', 'face', 'faceless', 'facial', 'facial_hair', 'facial_mark', 'facing_viewer', 'fake_animal_ears', 'fang', 'fangs', 'feathered_wings', 'feathers', 'feet', 'feet_out_of_frame', 'fellatio', 'female_pubic_hair', 'finger_to_mouth', 'fingering', 'fingerless_gloves', 'fingernails', 'fire', 'fish', 'fishnet_legwear', 'fishnets', 'flat_chest', 'floating', 'floating_hair', 'floral_print', 'flower', 'flying', 'flying_sweatdrops', 'folded_ponytail', 'food', 'forehead', 'foreshortening', 'forest', 'formal', 'fox_ears', 'fox_girl', 'fox_tail', 'freckles', 'french_braid', 'frilled_bikini', 'frilled_dress', 'frilled_skirt', 'frilled_sleeves', 'frills', 'from_above', 'from_behind', 'from_below', 'from_side', 'front-tie_top', 'frown', 'fruit', 'full_body', 'full_moon', 'fur_collar', 'fur_trim', 'furry', 'garter_belt', 'garter_straps', 'gauntlets', 'gem', 'genderswap', 'genderswap_(mtf)', 'gift', 'girl_on_top', 'glasses', 'gloves', 'glowing', 'glowing_eyes', 'goggles', 'goggles_on_head', 'grabbing', 'gradient', 'gradient_background', 'gradient_hair', 'grass', 'green_bow', 'green_eyes', 'green_hair', 'green_skirt', 'grey_background', 'grey_eyes', 'grey_hair', 'grey_shirt', 'grey_skirt', 'greyscale', 'grin', 'groin', 'ground_vehicle', 'group_sex', 'gun', 'gym_uniform', 'hair_between_eyes', 'hair_bobbles', 'hair_bow', 'hair_bun', 'hair_flaps', 'hair_flower', 'hair_intakes', 'hair_ornament', 'hair_over_one_eye', 'hair_over_shoulder', 'hair_ribbon', 'hair_rings', 'hair_scrunchie', 'hair_tubes', 'hairband', 'hairclip', 'hakama', 'hakama_skirt', 'half-closed_eyes', 'half_updo', 'halloween', 'halo', 'halterneck', 'hand_fan', "hand_on_another's_head", 'hand_on_hip', 'hand_on_own_chest', 'hand_on_own_face', 'hand_up', 'handgun', 'handjob', 'hands', 'hands_on_hips', 'hands_up', 'happy', 'happy_birthday', 'hat', 'hat_bow', 'hat_ornament', 'hat_ribbon', 'head_tilt', 'head_wings', 'headband', 'headgear', 'headphones', 'headset', 'headwear_removed', 'heart', 'heart-shaped_pupils', 'heavy_breathing', 'helmet', 'hetero', 'heterochromia', 'high_heel_boots', 'high_heels', 'high_ponytail', 'highleg', 'highleg_leotard', 'holding', 'holding_book', 'holding_cup', 'holding_food', 'holding_gun', 'holding_hands', 'holding_sword', 'holding_weapon', 'hood', 'hood_down', 'hooded_jacket', 'hoodie', 'horns', 'horse_ears', 'hug', 'huge_breasts', 'index_finger_raised', 'indoors', 'innertube', 'instrument', 'interlocked_fingers', 'jacket', 'japanese_clothes', 'jewelry', 'jingle_bell', 'jitome', 'juliet_sleeves', 'katana', 'kemonomimi_mode', 'kimono', 'kiss', 'knee_boots', 'kneehighs', 'kneeling', 'knees_up', 'knife', 'lace', 'lace_trim', 'large_breasts', 'large_pectorals', 'leaf', 'leaning_forward', 'leg_up', 'legs', 'legs_apart', 'legs_up', 'lens_flare', 'leotard', 'letterboxed', 'licking', 'lifted_by_self', 'light_brown_hair', 'light_particles', 'light_purple_hair', 'light_smile', 'lingerie', 'lips', 'lipstick', 'loafers', 'loli', 'lolita_fashion', 'long_fingernails', 'long_hair', 'long_legs', 'long_sleeves', 'looking_at_another', 'looking_at_viewer', 'looking_away', 'looking_back', 'looking_down', 'looking_to_the_side', 'looking_up', 'low-tied_long_hair', 'low_ponytail', 'low_twintails', 'lying', 'machinery', 'magical_girl', 'maid', 'maid_apron', 'maid_headdress', 'makeup', 'male_focus', 'male_pubic_hair', 'mary_janes', 'mask', 'masturbation', 'mecha', 'medium_breasts', 'medium_hair', 'messy_hair', 'micro_bikini', 'microphone', 'midriff', 'military', 'military_uniform', 'minigirl', 'miniskirt', 'mob_cap', 'mole', 'mole_under_eye', 'mole_under_mouth', 'monochrome', 'monster', 'monster_girl', 'moon', 'mosaic_censoring', 'motion_lines', 'motor_vehicle', 'mouth_hold', 'multicolored_clothes', 'multicolored_hair', 'multiple_boys', 'multiple_girls', 'multiple_penises', 'multiple_tails', 'multiple_views', 'muscular', 'muscular_male', 'musical_note', 'nail_polish', 'nature', 'naughty_face', 'navel', 'neck_bell', 'neck_ribbon', 'neckerchief', 'necklace', 'necktie', 'new_year', 'night', 'night_sky', 'nipples', 'no_bra', 'no_hat', 'no_headwear', 'no_humans', 'no_panties', 'no_pants', 'no_shoes', 'nontraditional_miko', 'nose_blush', 'nude', 'o-ring', 'o_o', 'obi', 'ocean', 'off_shoulder', 'official_alternate_costume', 'older', 'on_back', 'on_bed', 'on_side', 'on_stomach', 'one-piece_swimsuit', 'one_eye_closed', 'one_side_up', 'oni_horns', 'open_clothes', 'open_jacket', 'open_mouth', 'open_shirt', 'oral', 'orange_eyes', 'orange_hair', 'otoko_no_ko', 'out_of_frame', 'outdoors', 'outstretched_arm', 'outstretched_arms', 'own_hands_together', 'paizuri', 'pale_skin', 'panties', 'panties_under_pantyhose', 'pants', 'panty_pull', 'pantyhose', 'pantyshot', 'parody', 'parted_bangs', 'parted_lips', 'partially_submerged', 'pauldrons', 'peaked_cap', 'pectorals', 'pelvic_curtain', 'pencil_skirt', 'pendant', 'penis', 'personification', 'petals', 'phone', 'piercing', 'pillow', 'pink_background', 'pink_bow', 'pink_dress', 'pink_eyes', 'pink_flower', 'pink_hair', 'pink_nails', 'pink_panties', 'pink_ribbon', 'pink_skirt', 'plaid', 'plaid_skirt', 'plant', 'plate', 'playboy_bunny', 'pleated_skirt', 'pointing', 'pointy_ears', 'pokemon_(creature)', 'polearm', 'polka_dot', 'pom_pom_(clothes)', 'ponytail', 'portrait', 'pov', 'profile', 'pubic_hair', 'puffy_nipples', 'puffy_short_sleeves', 'puffy_sleeves', 'purple_background', 'purple_dress', 'purple_eyes', 'purple_hair', 'pussy', 'pussy_juice', 'rabbit_ears', 'rabbit_tail', 'rain', 'rape', 'red-framed_eyewear', 'red_background', 'red_bikini', 'red_bow', 'red_bowtie', 'red_dress', 'red_eyes', 'red_flower', 'red_footwear', 'red_gloves', 'red_hair', 'red_headwear', 'red_jacket', 'red_legwear', 'red_nails', 'red_neckerchief', 'red_necktie', 'red_ribbon', 'red_shirt', 'red_skirt', 'reflection', 'remodel_(kantai_collection)', 'restrained', 'revealing_clothes', 'ribbed_sweater', 'ribbon', 'ribbon-trimmed_sleeves', 'ribbon_trim', 'rifle', 'ring', 'rope', 'rose', 'sailor_collar', 'sailor_dress', 'saliva', 'sandals', 'santa_costume', 'santa_hat', 'sash', 'scar', 'scar_on_face', 'scarf', 'scenery', 'school_bag', 'school_swimsuit', 'school_uniform', 'scrunchie', 'see-through', 'seiza', 'semi-rimless_eyewear', 'serafuku', 'sex', 'sex_from_behind', 'sex_toy', 'shaded_face', 'shadow', 'sharp_teeth', 'sheath', 'shield', 'shiny', 'shiny_clothes', 'shiny_hair', 'shiny_skin', 'shirt', 'shirt_lift', 'shoes', 'short_dress', 'short_hair', 'short_hair_with_long_locks', 'short_ponytail', 'short_shorts', 'short_sleeves', 'short_twintails', 'shorts', 'shoulder_armor', 'siblings', 'side-tie_bikini', 'side-tie_panties', 'side_braid', 'side_ponytail', 'side_slit', 'sideboob', 'sidelocks', 'signature', 'silver_hair', 'simple_background', 'single_braid', 'single_glove', 'single_horn', 'single_thighhigh', 'sisters', 'sitting', 'sketch', 'skin_tight', 'skindentation', 'skirt', 'skirt_lift', 'skirt_set', 'skull', 'sky', 'sleeping', 'sleeveless', 'sleeveless_dress', 'sleeveless_shirt', 'sleeves_past_fingers', 'sleeves_past_wrists', 'sleeves_rolled_up', 'slit_pupils', 'small_breasts', 'smartphone', 'smile', 'smoke', 'sneakers', 'snow', 'socks', 'soles', 'solo', 'solo_focus', 'sparkle', 'spear', 'speech_bubble', 'spiked_hair', 'spikes', 'spoken_ellipsis', 'spoken_heart', 'spot_color', 'spread_legs', 'spread_pussy', 'squatting', 'staff', 'standing', 'standing_on_one_leg', 'star_(sky)', 'star_(symbol)', 'starry_sky', 'steam', 'stomach', 'straddling', 'straight_hair', 'strap_slip', 'strapless', 'strapless_dress', 'streaked_hair', 'string_bikini', 'striped', 'striped_legwear', 'striped_panties', 'stuffed_animal', 'stuffed_toy', 'suit', 'sun_hat', 'sunglasses', 'sunlight', 'sunset', 'surprised', 'suspenders', 'sweat', 'sweatdrop', 'sweater', 'sweater_vest', 'swept_bangs', 'swimsuit', 'sword', 'symbol-shaped_pupils', 't-shirt', 'table', 'tail', 'tan', 'tank_top', 'tanlines', 'tareme', 'tassel', 'tattoo', 'teacup', 'tearing_up', 'tears', 'teddy_bear', 'teeth', 'tentacles', 'testicles', 'thick_eyebrows', 'thick_thighs', 'thigh_boots', 'thigh_gap', 'thigh_strap', 'thighband_pantyhose', 'thighhighs', 'thighs', 'third_eye', 'thong', 'tiara', 'tied_hair', 'toes', 'tokin_hat', 'tongue', 'tongue_out', 'topless', 'torn_clothes', 'torn_legwear', 'towel', 'traditional_media', 'transparent_background', 'tray', 'tree', 'trembling', 'tsurime', 'turret', 'turtleneck', 'twin_braids', 'twin_drills', 'twintails', 'twitter_username', 'two-tone_background', 'two-tone_hair', 'two_side_up', 'umbrella', 'uncensored', 'under-rim_eyewear', 'underboob', 'underwear', 'underwear_only', 'undressing', 'uniform', 'upper_body', 'upper_teeth', 'upskirt', 'v', 'v-shaped_eyebrows', 'v_arms', 'vaginal', 'veil', 'vertical_stripes', 'very_long_hair', 'vest', 'virtual_youtuber', 'wading', 'waist_apron', 'walking', 'wariza', 'water', 'watermark', 'wavy_hair', 'wavy_mouth', 'weapon', 'web_address', 'wet', 'wet_clothes', 'white_apron', 'white_background', 'white_bikini', 'white_bow', 'white_bra', 'white_dress', 'white_flower', 'white_footwear', 'white_gloves', 'white_hair', 'white_headwear', 'white_jacket', 'white_legwear', 'white_panties', 'white_ribbon', 'white_shirt', 'white_skirt', 'wide_hips', 'wide_sleeves', 'wind', 'window', 'wing_collar', 'wings', 'witch_hat', 'wolf_ears', 'wolf_tail', 'wrist_cuffs', 'wristband', 'x_hair_ornament', 'yaoi', 'yellow_background', 'yellow_bow', 'yellow_eyes', 'younger', 'yuri', 'zettai_ryouiki', 'zipper'];
+
+		const text_status = document.querySelector("#status");
+		text_status.innerHTML = "Please select image.";
+
+		async function predict(input_tensor) {
+					text_status.style.background="yellow";
+					text_status.innerHTML = "Loading model. Please wait.";
+					const model = await tf.loadLayersModel('model.json');
+					text_status.innerHTML = "Processing.";
+					output_tensor = model.predict([input_tensor]);
+					output_tensor.print();
+					console.log(output_tensor);
+					weights = await output_tensor.gather(0).array();
+
+					var result = weights.map(function(e, i) {
+								return {"tag":tags[i], "weight":3+Math.log(e)};
+							}).sort((a, b) => b.weight - a.weight);
+					result = result.map(function(e, i) { 
+								return {"tag":e.tag, "weight":e.weight - result[result.length-1].weight}
+							}).slice(0,50);
+					var out_str = '<ul>'
+					result.forEach(function(x){
+								out_str += '<li><div style="width:200px; display:inline-block;">' +  x.tag + '</div><div style="height:15px; width:'+ Math.round(x.weight * 10) + 'px; display:inline-block; background:blue;">&nbsp;<span style="color:white">'+Math.round(x.weight*10)+'</span></div></li>';
+							});
+					out_str += '</ul>';
+					document.querySelector("#result-div").innerHTML = out_str;
+					
+					console.log(result);
+					text_status.style.background="";
+					text_status.innerHTML = "Done!";
+
+				}
+
+		//predict();
+		const image_input = document.querySelector("#image-input");
+		image_input.addEventListener("change", function() {
+					const reader = new FileReader();
+					reader.addEventListener("load", () => {
+								var img = new Image();
+								img.onload = function(){
+											var _canvas = document.createElement('canvas');  
+											var context = _canvas.getContext("2d");
+											context.drawImage(img, 0, 0, img.width, img.height);
+											var imgData = context.getImageData(0, 0, img.width, img.height);
+											//console.log("IMGDATA PIXELS:" + imgData.data);
+
+											const canvas = document.querySelector("#canvas-image");
+											image_data = tf.browser.fromPixels(img,3);
+											//image_data = image_data.slice([0,0,0],[image_data.shape[0],image_data.shape[1],3]);
+											//tf.browser.toPixels(image_data, canvas);
+
+											img_w = Math.min(299,Math.round(299*img.width/img.height));
+											img_h = Math.min(299,Math.round(299*img.height/img.width));
+											const resized_image_data = image_data.resizeBilinear([img_h, img_w]);
+											img_w2 = Math.floor((299 - img_w)/2);
+											img_h2 = Math.floor((299 - img_h)/2);
+
+											const padded_image_data = resized_image_data.pad([[img_h2,299 - img_h - img_h2],[img_w2, 299 - img_w - img_w2],[0,0]]);
+											data = padded_image_data.cast("int32")
+											tf.browser.toPixels(data, canvas);
+
+											predict(data.reshape([1,299,299,3]));
+										}
+								img.src = reader.result;
+
+							});
+					reader.readAsDataURL(this.files[0]);
+				});
+
+		//		const canvas = document.createElement('canvas');
+		//		canvas.width = tensor.shape.width
+		//		canvas.height = tensor.shape.height
+		//		await tf.browser.toPixels(tensor, canvas);
+
+
+	</script>
 </html>
