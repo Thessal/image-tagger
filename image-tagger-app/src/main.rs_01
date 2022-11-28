@@ -1,0 +1,142 @@
+use yew::prelude::*;
+
+
+/// UI
+#[function_component(App)]
+fn app() -> Html {
+	let tags = vec![
+		Tag{id:0,name_en:"Test".to_string(),name_ko:"테스트1".to_string(),prob:0.2}, 
+		Tag{id:1,name_en:"Temp".to_string(),name_ko:"테스트".to_string(),prob: 0.8}
+	] ;
+
+	let selected_tag=use_state(|| None);
+	let on_tag_select = {
+		let selected_tag = selected_tag.clone();
+		Callback::from(move |tag:Tag|{
+			selected_tag.set(Some(tag))
+		})
+	};
+	let details = selected_tag.as_ref().map(|tag| html! {
+		<p>{tag.name_en.clone()}</p>
+	});
+
+	html! {
+		<html>
+			<h1>{ "hello World" }</h1>
+			<body>
+			<TagList tags={tags} on_click={on_tag_select.clone()}/>
+			</body>
+			{for details}
+		</html>
+	}
+}
+
+fn main() {
+	yew::Renderer::<App>::new().render();
+}
+
+
+/// Tags
+
+#[derive (Clone, PartialEq)]
+struct Tag{
+	id: i32,
+	name_en: String,
+	name_ko: String,
+	prob: f32,
+}
+
+#[derive (Properties, PartialEq)]
+struct TagListProps{
+	tags : Vec<Tag>,
+	on_click: Callback<Tag>
+}
+
+#[function_component (TagList)]
+fn tag_list( TagListProps{tags, on_click} : &TagListProps ) -> Html{
+	//tags.iter().map(|tag| html!{
+	//    <p> {tag.name_ko.clone()} {":"} {tag.prob}  </p>
+	//}).collect()
+	let on_click=on_click.clone();
+	tags.iter().map(
+		|tag| {
+			let on_tag_select={
+				let on_click = on_click.clone();
+				let tag = tag.clone();
+				Callback::from(move |_|  {
+					on_click.emit(tag.clone())
+				})
+			};
+			html!{
+				<p key={tag.id} onclick={on_tag_select}> {tag.name_ko.clone()} </p>
+			}
+		}).collect()
+}
+
+// Files
+use gloo_events::EventListener;
+use gloo_file::File;
+
+/*
+pub struct MyFileInput {
+	// link: ComponentLink<Self>,
+	file: Option<File>,
+}
+
+pub enum Msg {
+	SelectFile(Option<File>),
+	ClearFile,
+}
+
+impl Component for MyFileInput {
+	type Properties = ();
+	type Message = Msg;
+
+	fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
+		Self {
+			link,
+			file: None,
+		}
+	}
+
+	fn update(&mut self, msg: Self::Message) -> ShouldRender {
+		match msg {
+			Msg::SelectFile(file) => {
+				self.file = file;
+			},
+			Msg::ClearFile => {
+				self.file = None;
+			},
+		}
+		true
+	}
+
+	fn change(&mut self, _props: Self::Properties) -> ShouldRender {
+		false // No properties, so it should never change based on props
+	}
+
+	fn view(&self) -> Html {
+		match &self.file {
+			Some(file) => html! {
+				<div>
+					<p>{ "Filename: "}<span>{ file.name() }</span></p>
+					<p>{ "Last Modified: " }<span>{ file.last_modified() }</span></p>
+					<p>{ "Size: " }<span>{ file.size() }</span></p>
+					<button onclick=self.link.callback(|_| Msg::ClearFile)>{ "Clear" }</button>
+					</div>
+			},
+			None => html! {
+				<input type="file" id="file-input" onchange=self.link.callback(|cd: ChangeData| {
+					match cd {
+						ChangeData::Files(file_list) => {
+							log::info!("File list: {:?}", file_list.get(0));
+							Msg::SelectFile(file_list.get(0))
+						},
+						default => Msg::ClearFile
+					}
+				})/>
+			},
+		}
+	}
+}    
+*/
