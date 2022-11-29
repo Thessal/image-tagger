@@ -3,12 +3,11 @@
 
 # In[1]:
 
-
-pip install tensorflow-probability==0.16.0
-
-
-# In[2]:
-
+# Docker : 11.8.0-cudnn8-devel-ubuntu22.04
+# tf.__version__ : '2.8.0'
+# python --version : Python 3.8.10
+# NVIDIA-SMI 520.61.05    Driver Version: 520.61.05    CUDA Version: 11.8
+# pip install tensorflow-probability==0.16.0
 
 import json
 import lzma, tarfile
@@ -18,7 +17,6 @@ import tensorflow_addons as tfa
 # from keras.layers import LeakyReLU
 import os 
 from datetime import datetime
-
 import matplotlib.pyplot as plt
 import tensorflow_probability as tfp
 
@@ -26,15 +24,11 @@ import tensorflow_probability as tfp
 # In[3]:
 
 
-
-# tf.config.set_visible_devices([], 'GPU')
-
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-#             tf.config.experimental.set_virtual_device_configuration(gpus[0], [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024)])
     except RuntimeError as e:
         print(e)
 
@@ -105,64 +99,6 @@ if not os.path.isfile("metadata_procesed.json.xz"):
 
 with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
     metadata = [json.loads(line) for line in f.readlines()]
-
-
-# In[7]:
-
-
-# # Define model
-# pretrained_model = tf.keras.applications.inception_v3.InceptionV3(
-#     include_top=True,
-#     weights='imagenet',
-#     input_tensor=None,
-#     input_shape=(299, 299, 3),
-#     pooling=None,
-#     classes=N,
-#     classifier_activation='softmax'
-# )
-
-# custom_model = tf.keras.applications.inception_v3.InceptionV3(
-#     include_top=True,
-#     weights=None,
-#     input_tensor=None,
-#     input_shape=(299, 299, 3),
-#     pooling=None,
-#     classes=N,
-#     classifier_activation=tfa.layers.Sparsemax()
-# )
-
-# getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
-# for src, tgt in zip(pretrained_model.layers, custom_model.layers):
-#     if ("activation" not in src.name):
-#         try:
-#             assert (getname(src.name) == getname(tgt.name))
-#         except:
-#             print(src.name, tgt.name)
-#             raise Exception
-#         tgt.set_weights(src.get_weights())
-
-# adapter_input = tf.keras.Input((512,512,3))
-# adapter_conv2d = tf.keras.layers.Conv2D(strides=(3,3),filters=32,padding='valid',kernel_size=(16,16))
-# adapter_pooling = tf.keras.layers.MaxPooling2D(pool_size=(18, 18), strides=(1, 1), padding='valid')
-# trim_model = tf.keras.Model(inputs=custom_model.layers[2].input, outputs=custom_model.output)
-# result = trim_model(adapter_pooling(adapter_conv2d(adapter_input)))
-
-# resized_model = tf.keras.Model(inputs=adapter_input, outputs=result)
-# model = resized_model
-
-# model.compile(optimizer='adam',
-# #               loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
-#               loss=tfa.losses.SigmoidFocalCrossEntropy(),
-#               metrics=[
-#                   #tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy_sparse', dtype=None),
-#                   tf.keras.metrics.KLDivergence(),
-#                   tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None),
-#                   tf.keras.losses.CategoricalCrossentropy(from_logits=True),
-#                   tfa.losses.SigmoidFocalCrossEntropy(),
-#                   tfa.losses.SparsemaxLoss(), # logits
-#               ],
-#              )
-# # sparse_softmax_cross_entropy_with_logits
 
 
 # In[8]:
@@ -418,26 +354,6 @@ dataset_train = tf.data.Dataset.from_generator( gengen(metadata[:-1000]), output
 dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_signature=output_signature)
 
 
-# In[66]:
-
-
-# # tmp = dataset_test.take(1)
-# tmp.get_single_element()
-
-
-# In[13]:
-
-
-# def freeze(model, unfreeze=False):
-#     # Freeze convolution layers only
-#     for layer in model.layers:
-#         if 'layers' in layer.__dict__:
-#             # TODO : avoid duplicate freeze for same layer
-#             freeze(layer.layers, unfreeze)
-#         else:
-#             if layer.name.startswith("conv2d"):
-#                 layer.trainable = True if unfreeze else False
-
                 
 # Freeze convolution layers
 def freeze(unfreeze=False):
@@ -447,10 +363,6 @@ def freeze(unfreeze=False):
             layer_count += 1
         if layer.name.startswith("conv2d"):
             layer.trainable = True if unfreeze else False
-            ##Optional
-#         if layer_count > 8:
-#             # Do not freeze leaf convolution layer
-#             break
 
 
 # In[14]:
@@ -472,9 +384,6 @@ class DisplayCallback(tf.keras.callbacks.Callback):
             os.makedirs(output_path)
         with open (f"{output_path}/loss_{epoch}.json", "w") as f :
             f.write(json.dumps(logs))           
-filepath=output_path+"/weights-improvement-{epoch:02d}-{val_accuracy:.2f}.hdf5"
-# checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
-checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_kullback_leibler_divergence', verbose=1, save_best_only=True, mode='min')
 logdir = f"./tensorboard-logs/{datetime.isoformat(datetime.now())}"
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
@@ -485,10 +394,24 @@ test_dataset = dataset_test.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_S
 # In[ ]:
 
 
+filepath=output_path+"/weights-improvement-{epoch:02d}.hdf5"
+checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_kullback_leibler_divergence', verbose=1, save_best_only=True, mode='min')
+model.compile(optimizer='adam',
+              loss=tfa.losses.SigmoidFocalCrossEntropy(),
+              metrics=[
+                  tf.keras.metrics.KLDivergence(),
+                  tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+                  tfa.losses.SigmoidFocalCrossEntropy(),
+                  tfa.losses.SparsemaxLoss(),
+                  tf.keras.losses.MeanAbsoluteError(),
+                  tf.keras.losses.Huber(delta=1.0),
+              ],
+             )
+
 freeze(base_model)
 model.summary()
 model_history = model.fit(train_dataset,
-                          epochs=UNFREEZE_EPOCH,
+                          epochs=30,
                           steps_per_epoch=STEPS_PER_EPOCH,
                           validation_data=test_dataset,
                           validation_steps=1+STEPS_PER_EPOCH//10,
@@ -504,7 +427,7 @@ freeze(base_model,unfreeze=True)
 model.summary()
 model_history = model.fit(train_dataset,
                           initial_epoch=UNFREEZE_EPOCH,
-                          epochs=31,
+                          epochs=100,
                           steps_per_epoch=STEPS_PER_EPOCH,
                           validation_data=test_dataset,
                           validation_steps=1+STEPS_PER_EPOCH//10,
@@ -513,12 +436,10 @@ model_history = model.fit(train_dataset,
                           callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
 
 
-# In[ ]:
+# In[71]:
 
 
-# @keras_export("keras.metrics.TopKCategoricalAccuracy")
 class HeadKCategoricalCrossEntropy(tf.keras.metrics.MeanMetricWrapper):
-#     @dtensor_utils.inject_mesh
     def __init__(self, k=200, name="head_k_categorical_crossentorpy", dtype=None):
         super().__init__(
             lambda yt, yp: tf.keras.metrics.categorical_crossentropy(
@@ -526,12 +447,10 @@ class HeadKCategoricalCrossEntropy(tf.keras.metrics.MeanMetricWrapper):
             ),
             name,
             dtype=dtype,
-#             k=k,
         )
             
 class WeightKCategoricalCrossEntropy(tf.keras.metrics.MeanMetricWrapper):
-#     @dtensor_utils.inject_mesh
-    def __init__(self, name="weighted_k_categorical_crossentorpy", dtype=None):
+    def __init__(self, name="weighted_k_categorical_crossentropy", dtype=None):
         # Weight on starting 200 element of 1000 element
         sigm = lambda x : 1 / ( 1 +np.exp(0.02*(-x+800)))
         self.weight=sigm(np.arange(1000,0,-1))
@@ -542,15 +461,37 @@ class WeightKCategoricalCrossEntropy(tf.keras.metrics.MeanMetricWrapper):
             name,
             dtype=dtype,
         )
-        
-checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
 
-model.compile(optimizer='adam', #'nadam', # SGD
-              loss=[tfa.losses.SparsemaxLoss(),tfa.losses.SigmoidFocalCrossEntropy()], # exploit vs explore
-              loss_weights=[0.5,0.5],
+import keras
+class WeightKCategoricalCrossEntropyLoss(keras.losses.LossFunctionWrapper):
+    def __init__(self, 
+                 name="weighted_k_categorical_crossentropy_loss",
+                 reduction=keras.losses.losses_utils.ReductionV2.AUTO,
+                ):
+        # Weight on starting 200 element of 1000 element
+        sigm = lambda x : 1 / ( 1 +np.exp(0.02*(-x+800)))
+        self.weight=tf.convert_to_tensor(sigm(np.arange(1000,0,-1)), dtype=np.float32)
+        super().__init__(
+            lambda yt, yp: tf.keras.losses.categorical_crossentropy(
+                yt*self.weight, yp*self.weight
+            ),
+            name=name,
+            reduction=reduction,
+        )
+        
+checkpoint = tf.keras.callbacks.ModelCheckpoint(
+    filepath,       
+    monitor='val_crossentropy',
+    verbose=1, 
+)
+
+model.compile(optimizer='SGD',
+              loss=[
+                    tfa.losses.SigmoidFocalCrossEntropy()
+              ],
               metrics=[
                   tf.keras.metrics.KLDivergence(),
-                  #tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+                  tf.keras.losses.CategoricalCrossentropy(from_logits=False),
                   WeightKCategoricalCrossEntropy(name='accuracy'), # TODO : rename 'accuracy'
                   HeadKCategoricalCrossEntropy(k=200),
                   tfa.losses.SigmoidFocalCrossEntropy(),
@@ -561,8 +502,8 @@ model.compile(optimizer='adam', #'nadam', # SGD
              )
 model.summary()
 model_history = model.fit(train_dataset,
-                          initial_epoch=31,
-                          epochs=EPOCHS,
+                          initial_epoch=100,
+                          epochs=150, #EPOCHS,
                           steps_per_epoch=STEPS_PER_EPOCH,
                           validation_data=test_dataset,
                           validation_steps=1+STEPS_PER_EPOCH//10,
@@ -571,7 +512,11 @@ model_history = model.fit(train_dataset,
                           callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
 
 
-# In[80]:
+model.save_weights("./model/weights.hdf5")
 
 
-model.save_weights("./weights.hdf5")
+# !tensorflowjs_converter --help
+# tf.keras.models.save_model(pretrained_model, "./model_tfjs.h5")
+# !tensorflowjs_converter --input_format=keras ./model_tfjs.h5 /tfjs_model
+
+
