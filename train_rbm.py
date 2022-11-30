@@ -347,7 +347,7 @@ class MultiOptimizerModel(tf.keras.Model):
         return output
 
 
-# In[8]:
+# In[17]:
 
 
 def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
@@ -369,7 +369,7 @@ def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
         rbm_layer = Rbm(intermediate_layer.shape[-1], 1000, 3)
         rbm_loss = RbmLoss(rbm_layer)
         rbm_output = rbm_layer(intermediate_layer)
-        output_layer = tf.keras.layers.Dense(N)(rbm_output)
+        output_layer = tf.keras.activations.sigmoid(tf.keras.layers.Dense(N)(rbm_output))
         rbm_loss_output = rbm_loss(intermediate_layer, rbm_output)
         model = MultiOptimizerModel( 
             inputs = input_layer, 
@@ -411,7 +411,7 @@ def compile_model(cfg):
             (tf.optimizers.SGD(learning_rate=0.01), non_rbm_variables, 
              lambda y_true, y_pred : tfa.losses.sigmoid_focal_crossentropy(y_true, y_pred[0]), # (0)
              "non-rbm"),
-            (tf.optimizers.SGD(learning_rate=0.0001), rbm_variables, 
+            (tf.optimizers.SGD(learning_rate=0.01), rbm_variables, 
              lambda y_true, y_pred : y_pred[1], # (1)
              "rbm")
         )
@@ -452,14 +452,14 @@ def fit(model, cfg, epoch_start, epoch_end):
     )
 
 
-# In[13]:
+# In[18]:
 
 
 # cfg["DEBUG"] = True
 cfg["DEBUG"] = False
 
 
-# In[14]:
+# In[19]:
 
 
 cfg = load_data(cfg)
@@ -474,6 +474,8 @@ tf.keras.utils.plot_model(model)
 
 # In[ ]:
 
+
+# tf.config.run_functions_eagerly(True)
 
 # model.summary()
 base_model.trainable=False # Freeze except rbm & dense
