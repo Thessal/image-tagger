@@ -7,7 +7,7 @@
 pip install tensorflow-probability==0.16.0
 
 
-# In[30]:
+# In[1]:
 
 
 import json
@@ -30,20 +30,28 @@ if gpus:
     except RuntimeError as e:
         print(e)
 
+cfg = {
+    "N":2000, "INPUT_IMAGE_SIZE":512, 
+    "BATCH_SIZE":128, "BUFFER_SIZE":128*3, 
+    "model":"RBM", 
+}
 
-# In[42]:
+
+# In[2]:
 
 
+import pdb
+from IPython.core.debugger import set_trace
+tf.keras.backend.clear_session()
 
 
-
-# In[48]:
+# In[3]:
 
 
 def load_data(cfg):
+    N = cfg["N"]
     if "tags_topN_name" not in cfg:
         # Get tag list
-        N = cfg["N"]
         with open("./tags/tags000000000000.json", "r") as f :
             tags_d = [json.loads(line) for line in f.readlines()]
         tags_top = sorted(
@@ -99,7 +107,7 @@ def load_data(cfg):
     return cfg
 
 
-# In[49]:
+# In[4]:
 
 
 class Datagen:
@@ -158,7 +166,7 @@ class Datagen:
 
 
 def prepare_dataset(cfg, repeat=True):
-    if ("dataset_train" in cfg) and ("dataset_test" in cfg) : 
+    if ("train_dataset" in cfg) and ("test_dataset" in cfg) : 
         return cfg
     metadata, N, INPUT_IMAGE_SIZE = cfg["metadata"], cfg["N"], cfg["INPUT_IMAGE_SIZE"]
     BUFFER_SIZE, BATCH_SIZE = cfg["BUFFER_SIZE"], cfg["BATCH_SIZE"]
@@ -173,8 +181,8 @@ def prepare_dataset(cfg, repeat=True):
     dataset_train = tf.data.Dataset.from_generator(reader_train.gen, output_signature=output_signature)
     dataset_test = tf.data.Dataset.from_generator(reader_test.gen, output_signature=output_signature)    
     if repeat:
-        train_dataset = dataset_train.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
-        test_dataset = dataset_test.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)
+        train_dataset = dataset_train.repeat().shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+        test_dataset = dataset_test.repeat().shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
     else:
         train_dataset = dataset_train.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
         test_dataset = dataset_test.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
@@ -183,7 +191,7 @@ def prepare_dataset(cfg, repeat=True):
     return cfg
 
 
-# In[45]:
+# In[5]:
 
 
 def load_pretrained_model_01():
@@ -209,38 +217,97 @@ def load_pretrained_model_01():
     return model
 
 
-# In[160]:
+# In[ ]:
+
+
+
+
+
+# In[55]:
 
 
 class Rbm(tf.keras.layers.Layer):
     ## nn.register_parameter would be handy 
     def __init__(self, nv, nh, cd_steps):
         super(Rbm, self).__init__()
-        self.W = tf.Variable(tf.random.truncated_normal((nv, nh)) * 0.01) # Transformation
-        self.bv = tf.Variable(tf.zeros(nv)) # bias visible
-        self.bh = tf.Variable(tf.zeros(nh)) # bias hidden
-        self.cd_steps=cd_steps
+        self.W = self.add_weight(name='W', shape=(nv, nh), trainable=True)
+        self.W.assign(tf.random.truncated_normal((nv, nh)) * 0.01)
+        self.bv = self.add_weight(name='bias_visible', shape=(nv,)) 
+        self.bh = self.add_weight(name='bias_hidden', shape=(nh,)) 
+        self.cd_steps = cd_steps
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "cd_steps": self.cd_steps,
+        })
+        return config
         
     def call(self, inputs):
         result = tf.expand_dims(inputs, axis=1)
         for i in range(self.cd_steps):
             result = tf.matmul((tf.matmul(result, self.W) + self.bh), tf.transpose(self.W) + self.bv)
         result = tf.squeeze(result, axis=1)
+        return result  
+
+
+class RbmLoss(tf.keras.layers.Layer):
+    def __init__(self, rbm_layer):
+        super(RbmLoss, self).__init__()
+        
+        # Cannot be serialized
+        # Only used for training
+        self.W = rbm_layer.W
+        self.bv = rbm_layer.bv
+        self.bh = rbm_layer.bh
+        
+    def call(self, v_in, v_out):
+        tf.stop_gradient(v_out)
+        W, bv, bh = self.W, self.bv, self.bh
+        loss = tf.subtract(self.energy(v_in, W, bv, bh), self.energy(v_out, W, bv, bh))
+        return loss
             
-        ## TODO: loss
-        ## https://www.tensorflow.org/guide/keras/custom_layers_and_models
-        ## https://tensorflow.google.cn/guide/keras/train_and_evaluate
-        # self.add_loss(self.energy(inputs)-self.energy(result))
-        return result
-    
-    def energy(self, _v):
-        v = tf.stop_gradient(_v) 
-        W = tf.stop_gradient(self.W)
-        b_term = tf.matmul(v, tf.expand_dims(self.bv, axis=1))
-        linear_tranform = tf.matmul(v, W) + tf.squeeze(self.bh)
-        h_term = tf.reduce_sum(tf.math.log(tf.exp(linear_tranform) + 1), axis=1) 
-        return tf.reduce_mean(-h_term -b_term)
-    
+    def energy(self, v, W, bv, bh):
+        b_term = tf.expand_dims(tf.einsum("bx,y->b", v, bv), axis=1)
+        linear_transform  = tf.einsum("bh,hx->bx", v, W) + tf.expand_dims(bh, axis=0)
+        h_term = tf.expand_dims(tf.reduce_sum(tf.math.log(tf.exp(linear_transform) + 1), axis=1), axis=1)
+        return tf.reduce_mean( - h_term - b_term , axis=-1)
+
+
+# In[65]:
+
+
+from keras.engine import data_adapter
+class MultiOptimizerModel(tf.keras.Model):
+    def compile(self, optimizer, optimizers_and_variables_and_losses_and_name, **kwargs):
+        super().compile(optimizer, **kwargs)
+        self.optimizers_and_variables_and_losses_and_name = optimizers_and_variables_and_losses_and_name
+        # optimizer : default optimizer
+        # optimizers_and_layers_and_losses : [(optimizer, variable list, loss fn), ...] 
+
+    def train_step(self, data):
+        x, y, sample_weight = data_adapter.unpack_x_y_sample_weight(data)
+        
+        loss_log = dict()
+        for optimizer, variable, loss, name in self.optimizers_and_variables_and_losses_and_name:
+            # Run forward pass.
+            with tf.GradientTape() as tape:
+                y_pred = self(x, training=True)
+                loss_value = loss(y,y_pred)
+
+            # Run backwards pass.
+            optimizer.minimize(loss_value, variable, tape=tape)
+            
+            loss_log["loss_"+name] = loss_value
+            
+        output = self.compute_metrics(x, y, y_pred, sample_weight)
+        output.update(losses_log)
+        return output
+
+
+# In[72]:
+
+
 def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
     N = cfg["N"]
     INPUT_IMAGE_SIZE = cfg["INPUT_IMAGE_SIZE"]
@@ -253,84 +320,123 @@ def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
         model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
     elif cfg["model"]=="RBM":
         rbm_layer = Rbm(intermediate_layer.shape[-1], 1000, 3)
-        output_layer = tf.keras.layers.Dense(N)(rbm_layer(intermediate_layer))
-#             rbm_loss = rbm_layer.energy(intermediate_layer) - rbm_layer.energy(rbm_result)
-        
-        model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
-#         optimizers_and_layers = [
-#             (optimizer, [l for l in intermediate_model.layers]+[model.layers[-1]]), 
-#             (m, [model.layers[-2]])
-#         ]
-#         optimizer = tfa.optimizers.MultiOptimizer(optimizers_and_layers)
+        rbm_loss = RbmLoss(rbm_layer)
+        rbm_output = rbm_layer(intermediate_layer)
+        output_layer = tf.keras.layers.Dense(N)(rbm_output)
+        rbm_loss_output = rbm_loss(intermediate_layer, rbm_output)
+        model = MultiOptimizerModel( 
+            inputs = input_layer, 
+            outputs = [
+                output_layer,  # (0)
+                rbm_loss_output# (1)
+            ]
+        )
+
     return model, optimizer
 
+def compile_model(cfg):
+    kwargs = {
+        "optimizer" : 'SGD',
+        "loss" : None,
+        "metrics" : [
+            tf.keras.metrics.KLDivergence(),
+            tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+            tfa.losses.SigmoidFocalCrossEntropy(),
+            tfa.losses.SparsemaxLoss(),
+            tf.keras.losses.MeanAbsoluteError(),
+            tf.keras.losses.Huber(delta=1.0),
+        ],
+    }
+    if cfg["model"]=="default":
+        kwargs["loss"] = tfa.losses.SigmoidFocalCrossEntropy()
+    elif cfg["model"]=="RBM":
+        all_variables = model.trainable_variables
+        rbm_variables = []
+        for x in model.layers:
+            if x.name.split("_")[0]=="rbm":
+                rbm_variables += x.trainable_variables
+        rbm_variables = list({x.name:x for x in rbm_variables}.values())
+        rbm_variables_name = [x.name for x in rbm_variables]
+        non_rbm_variables = [x for x in all_variables if (x.name not in rbm_variables_name)]
+        
+        kwargs["optimizers_and_variables_and_losses_and_name"] = (
+            (tf.optimizers.Adam(), non_rbm_variables, 
+             lambda y_true, y_pred : tfa.losses.sigmoid_focal_crossentropy(y_true, y_pred[0]), # (0)
+             "non-rbm"),
+            (tf.optimizers.Adam(), rbm_variables, 
+             lambda y_true, y_pred : y_pred[1], # (1)
+             "rbm")
+        )
+        kwargs["metrics"] = [
+            [],[]
+        ]
+    else:
+        raise NotImplementedError()
+        
+    model.compile(**kwargs)
+    
+def fit(model, cfg, epoch_start, epoch_end):
+    output_path = "./model"
+    class DisplayCallback(tf.keras.callbacks.Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
+            if not os.path.exists(output_path):
+                os.makedirs(output_path)
+            with open (f"{output_path}/loss_{epoch}.json", "w") as f :
+                f.write(json.dumps(logs))           
+    filepath=output_path+"/weights-improvement-{epoch:02d}-{val_loss:.2f}.hdf5"
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
+    logdir = f"./tensorboard-logs/{datetime.isoformat(datetime.now())}"
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+    
 
-# In[161]:
+    STEPS_PER_EPOCH=(2**15)//cfg["BATCH_SIZE"]
+    model.fit(
+        cfg["train_dataset"],
+        epochs=epoch_end,
+        initial_epoch=epoch_start,
+        steps_per_epoch=STEPS_PER_EPOCH,
+        validation_data=cfg["test_dataset"],
+        validation_steps=1+STEPS_PER_EPOCH//10,
+        use_multiprocessing=True,
+        workers=2,
+        callbacks=[DisplayCallback(), checkpoint, tensorboard_callback]
+    )
 
 
-cfg = {
-    "N":2000, "INPUT_IMAGE_SIZE":512, 
-    "BATCH_SIZE":128, "BUFFER_SIZE":128*3, 
-    "model":"RBM", 
-}
+# In[ ]:
+
+
+
+
+
+# In[78]:
+
+
 cfg = load_data(cfg)
 cfg = prepare_dataset(cfg)
+print(cfg.keys())
 base_model = load_pretrained_model_01()
-model = modify_model(base_model, cfg)
+model, optimizer = modify_model(base_model, cfg)
 
-
-# In[146]:
-
-
-# Freeze
-base_model.trainable=False
 model.summary()
+tf.keras.utils.plot_model(model)
 
-# model.compile(optimizer='SGD', #'nadam', # SGD
-#               loss=[
-# #                   WeightKCategoricalCrossEntropyLoss(),
-# #                   tfa.losses.SparsemaxLoss(),
-#                     tfa.losses.SigmoidFocalCrossEntropy()
-#               ], # exploit vs explore
-# #               loss_weights=[1,5],
-#               metrics=[
-#                   tf.keras.metrics.KLDivergence(),
-#                   tf.keras.losses.CategoricalCrossentropy(from_logits=False),
-#                   WeightKCategoricalCrossEntropy(name='accuracy'), # TODO : rename 'accuracy'
-#                   HeadKCategoricalCrossEntropy(k=200),
-#                   tfa.losses.SigmoidFocalCrossEntropy(),
-#                   tfa.losses.SparsemaxLoss(),
-#                   tf.keras.losses.MeanAbsoluteError(),
-#                   tf.keras.losses.Huber(delta=1.0),
-# #                   tf.keras.losses.BinaryFocalCrossentropy(),
-#               ],
-#              )
-# model
 
-# fit_kwargs = {
-#                         train_dataset,
-#                           epochs=UNFREEZE_EPOCH,
-#                           steps_per_epoch=STEPS_PER_EPOCH,
-#                           validation_data=test_dataset,
-#                           validation_steps=1+STEPS_PER_EPOCH//10,
-#                           use_multiprocessing=True,
-#                           workers=CORES_COUNT,
-#                           callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
-# }
+# In[ ]:
 
-# output_path = "./model"
-# class DisplayCallback(tf.keras.callbacks.Callback):
-#     def on_epoch_end(self, epoch, logs=None):
-#         print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
-#         if not os.path.exists(output_path):
-#             os.makedirs(output_path)
-#         with open (f"{output_path}/loss_{epoch}.json", "w") as f :
-#             f.write(json.dumps(logs))           
-# filepath=output_path+"/weights-improvement-{epoch:02d}-{val_accuracy:.2f}.hdf5"
-# # checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
-# checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_kullback_leibler_divergence', verbose=1, save_best_only=True, mode='min')
-# logdir = f"./tensorboard-logs/{datetime.isoformat(datetime.now())}"
-# tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
-model.fit(**fit_kwargs)
+# model.summary()
+base_model.trainable=False # Freeze except rbm & dense
+compile_model(cfg)
+fit(model, cfg, 0, 10)
+
+base_model.trainable=True 
+compile_model(cfg)
+
+
+# In[ ]:
+
+
+
 
