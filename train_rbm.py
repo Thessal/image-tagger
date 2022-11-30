@@ -32,8 +32,11 @@ if gpus:
 
 cfg = {
     "N":2000, "INPUT_IMAGE_SIZE":512, 
+    "RBM_N":2000, "RBM_STEP":3,
+    
     "BATCH_SIZE":128, "BUFFER_SIZE":128*3, 
-    "model":"RBM", "DEBUG":False
+    "model":"RBM", "DEBUG":False,
+    "logdir":f"./tensorboard-logs/{datetime.isoformat(datetime.now())}",
 }
 
 
@@ -324,7 +327,7 @@ class MultiOptimizerModel(tf.keras.Model):
     def train_step(self, data):
         x, y, sample_weight = data_adapter.unpack_x_y_sample_weight(data)
         
-        loss_log = dict()
+#         loss_log = dict()
         for optimizer, variable, loss, name in self.optimizers_and_variables_and_losses_and_name:
             # Run forward pass.
             if self.DEBUG:
@@ -342,14 +345,19 @@ class MultiOptimizerModel(tf.keras.Model):
 
             # Run backwards pass.
             optimizer.minimize(loss_value, variable, tape=tape)
-            
-            loss_log["loss_"+name] = loss_value
+            # loss_log["loss_"+name] = loss_value
             
         # Use first output for validation
         output = self.compute_metrics(x, y, y_pred[0], sample_weight)
-        output.update(loss_log)
+        # output.update(loss_log)
         # print(loss_log, output)
         return output
+
+
+# In[ ]:
+
+
+
 
 
 # In[9]:
@@ -371,7 +379,7 @@ def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
         output_layer = tf.keras.layers.Dense(N)(intermediate_layer)
         model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
     elif cfg["model"]=="RBM":
-        rbm_layer = Rbm(intermediate_layer.shape[-1], 1000, 3)
+        rbm_layer = Rbm(intermediate_layer.shape[-1], cfg["RBM_N"], cfg["RBM_STEP"])
         rbm_loss = RbmLoss(rbm_layer)
         rbm_output = rbm_layer(intermediate_layer)
         output_layer = tf.keras.activations.sigmoid(tf.keras.layers.Dense(N)(rbm_output))
@@ -435,11 +443,15 @@ def fit(model, cfg, epoch_start, epoch_end):
             print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
             if not os.path.exists(output_path):
                 os.makedirs(output_path)
-            with open (f"{output_path}/loss_{epoch}.json", "w") as f :
-                f.write(json.dumps(logs))           
-    filepath=output_path+"/weights-improvement-{epoch:02d}-{val_loss_non-rbm:.2f}.hdf5"
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss_non-rbm', verbose=1, save_best_only=True, mode='min')
-    logdir = f"./tensorboard-logs/{datetime.isoformat(datetime.now())}"
+            print(logs)
+#             with open (f"{output_path}/loss_{epoch}.json", "w") as f :
+#                 f.write(json.dumps(logs))           
+#     filepath=output_path+"/weights-improvement-{epoch:02d}-{val_loss_non-rbm:.2f}.hdf5"
+#     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss_non-rbm', verbose=1, save_best_only=True, mode='min')
+    filepath=output_path+"/rbm-{epoch:02d}.ckpt"
+#     filepath=output_path+"/rbm-{epoch:02d}.hdf5"
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, verbose=1, save_best_only=False)
+    logdir = cfg["logdir"]
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
     
 
@@ -464,7 +476,7 @@ def fit(model, cfg, epoch_start, epoch_end):
 cfg["DEBUG"] = False
 
 
-# In[11]:
+# In[ ]:
 
 
 cfg = load_data(cfg)
@@ -485,10 +497,17 @@ tf.keras.utils.plot_model(model)
 # model.summary()
 base_model.trainable=False # Freeze except rbm & dense
 compile_model(cfg)
-fit(model, cfg, 0, 10)
+fit(model, cfg, 0, 20)
 
 base_model.trainable=True 
 compile_model(cfg)
+fit(model, cfg, 20, 100)
+
+
+# In[ ]:
+
+
+
 
 
 # In[ ]:
