@@ -7,7 +7,7 @@
 pip install tensorflow-probability==0.16.0
 
 
-# In[1]:
+# In[2]:
 
 
 import json
@@ -37,7 +37,7 @@ cfg = {
 }
 
 
-# In[2]:
+# In[3]:
 
 
 import pdb
@@ -45,7 +45,7 @@ from IPython.core.debugger import set_trace
 tf.keras.backend.clear_session()
 
 
-# In[3]:
+# In[4]:
 
 
 def load_data(cfg):
@@ -107,7 +107,7 @@ def load_data(cfg):
     return cfg
 
 
-# In[4]:
+# In[5]:
 
 
 class Datagen:
@@ -171,8 +171,11 @@ def prepare_dataset(cfg, repeat=True):
     metadata, N, INPUT_IMAGE_SIZE = cfg["metadata"], cfg["N"], cfg["INPUT_IMAGE_SIZE"]
     BUFFER_SIZE, BATCH_SIZE = cfg["BUFFER_SIZE"], cfg["BATCH_SIZE"]
     test_data_count = 1000
-    reader_train = Datagen(metadata[:-test_data_count], N, verbose=False)
-    reader_test = Datagen(metadata[-test_data_count:], N, verbose=False)
+    metadata_sort = sorted(metadata,key=lambda x: x["id"][-3:])
+    reader_train = Datagen(metadata_sort[:-test_data_count], N, verbose=False)
+    reader_test = Datagen(metadata_sort[-test_data_count:], N, verbose=False)
+#     reader_train = Datagen(metadata_sort[:-test_data_count], N, verbose=True)
+#     reader_test = Datagen(metadata_sort[-test_data_count:], N, verbose=True)
 
     output_signature=(
         tf.TensorSpec(shape=(INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 3), dtype=tf.uint8),
@@ -190,8 +193,10 @@ def prepare_dataset(cfg, repeat=True):
     cfg["test_dataset"] = test_dataset
     return cfg
 
+# cfg.pop("train_dataset")
 
-# In[5]:
+
+# In[6]:
 
 
 def load_pretrained_model_01():
@@ -229,7 +234,7 @@ def load_pretrained_model_01():
 
 
 
-# In[6]:
+# In[7]:
 
 
 class Rbm(tf.keras.layers.Layer):
@@ -301,7 +306,7 @@ class RbmLoss(tf.keras.layers.Layer):
         return tf.reduce_mean( - h_term - b_term , axis=-1)
 
 
-# In[7]:
+# In[8]:
 
 
 from keras.engine import data_adapter
@@ -347,7 +352,7 @@ class MultiOptimizerModel(tf.keras.Model):
         return output
 
 
-# In[17]:
+# In[9]:
 
 
 def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
@@ -432,8 +437,8 @@ def fit(model, cfg, epoch_start, epoch_end):
                 os.makedirs(output_path)
             with open (f"{output_path}/loss_{epoch}.json", "w") as f :
                 f.write(json.dumps(logs))           
-    filepath=output_path+"/weights-improvement-{epoch:02d}-{val_loss:.2f}.hdf5"
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
+    filepath=output_path+"/weights-improvement-{epoch:02d}-{val_loss_non-rbm:.2f}.hdf5"
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss_non-rbm', verbose=1, save_best_only=True, mode='min')
     logdir = f"./tensorboard-logs/{datetime.isoformat(datetime.now())}"
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
     
@@ -452,14 +457,14 @@ def fit(model, cfg, epoch_start, epoch_end):
     )
 
 
-# In[18]:
+# In[10]:
 
 
 # cfg["DEBUG"] = True
 cfg["DEBUG"] = False
 
 
-# In[19]:
+# In[11]:
 
 
 cfg = load_data(cfg)
