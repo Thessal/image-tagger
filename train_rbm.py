@@ -33,7 +33,7 @@ if gpus:
 cfg = {
     "N":2000, "INPUT_IMAGE_SIZE":512, 
     "BATCH_SIZE":128, "BUFFER_SIZE":128*3, 
-    "model":"RBM", 
+    "model":"RBM", "DEBUG":False
 }
 
 
@@ -223,7 +223,13 @@ def load_pretrained_model_01():
 
 
 
-# In[55]:
+# In[ ]:
+
+
+
+
+
+# In[6]:
 
 
 class Rbm(tf.keras.layers.Layer):
@@ -243,13 +249,30 @@ class Rbm(tf.keras.layers.Layer):
         })
         return config
         
+    def sample_h(self, v):
+        ph_given_v = tf.sigmoid(tf.einsum('vh,bv->bh', self.W, v) + tf.expand_dims(self.bh, axis=0))
+        return self.bernoulli(ph_given_v)
+      
+    def sample_v(self, h):
+        pv_given_h = tf.sigmoid(tf.einsum('vh,bh->bv', self.W, h) + tf.expand_dims(self.bv, axis=0))
+        return self.bernoulli(pv_given_h)
+    
+    def bernoulli(self, p):
+        # Note : No intra-batch randomness
+        return tf.nn.relu(tf.sign(p - tf.random.uniform([1] + p.shape[1:])))
+    
     def call(self, inputs):
-        result = tf.expand_dims(inputs, axis=1)
+        v = inputs
+        # v = tf.round(inputs) # Use if input is binary # We are using intermediate layer, so skipping
+        vk = tf.identity(v)
         for i in range(self.cd_steps):
-            result = tf.matmul((tf.matmul(result, self.W) + self.bh), tf.transpose(self.W) + self.bv)
-        result = tf.squeeze(result, axis=1)
-        return result  
-
+            # Gibbs step
+            hk = self.sample_h(vk)
+            vk = self.sample_v(hk)
+        # print("v", v[0][:3])
+        # print("vk", vk[0][:3])
+        return vk
+    
 
 class RbmLoss(tf.keras.layers.Layer):
     def __init__(self, rbm_layer):
@@ -262,23 +285,31 @@ class RbmLoss(tf.keras.layers.Layer):
         self.bh = rbm_layer.bh
         
     def call(self, v_in, v_out):
+        # only grad for W, b
+        tf.stop_gradient(v_in)
         tf.stop_gradient(v_out)
         W, bv, bh = self.W, self.bv, self.bh
+        # print("W", tf.reduce_sum(W))
         loss = tf.subtract(self.energy(v_in, W, bv, bh), self.energy(v_out, W, bv, bh))
         return loss
             
     def energy(self, v, W, bv, bh):
+        # NOTE : v is not normalized. If grad is not stable, then do regularization
         b_term = tf.expand_dims(tf.einsum("bx,y->b", v, bv), axis=1)
         linear_transform  = tf.einsum("bh,hx->bx", v, W) + tf.expand_dims(bh, axis=0)
         h_term = tf.expand_dims(tf.reduce_sum(tf.math.log(tf.exp(linear_transform) + 1), axis=1), axis=1)
         return tf.reduce_mean( - h_term - b_term , axis=-1)
 
 
-# In[93]:
+# In[7]:
 
 
 from keras.engine import data_adapter
 class MultiOptimizerModel(tf.keras.Model):
+    def __init__(self, DEBUG=False, **kwargs):
+        super(MultiOptimizerModel, self).__init__(**kwargs)
+        self.DEBUG = DEBUG
+        
     def compile(self, optimizer, optimizers_and_variables_and_losses_and_name, **kwargs):
         super().compile(optimizer, **kwargs)
         self.optimizers_and_variables_and_losses_and_name = optimizers_and_variables_and_losses_and_name
@@ -291,6 +322,15 @@ class MultiOptimizerModel(tf.keras.Model):
         loss_log = dict()
         for optimizer, variable, loss, name in self.optimizers_and_variables_and_losses_and_name:
             # Run forward pass.
+            if self.DEBUG:
+                with tf.GradientTape() as tape:
+                    y_pred = self(x, training=True)
+                    loss_value = loss(y,y_pred)
+                    print("===")
+                    grads = tape.gradient(loss_value, variable)
+                    print(name, [(n.name, np.ravel(x.numpy())[:3]) for n, x in zip(variable, grads)])
+                    print("===")
+
             with tf.GradientTape() as tape:
                 y_pred = self(x, training=True)
                 loss_value = loss(y,y_pred)
@@ -307,10 +347,15 @@ class MultiOptimizerModel(tf.keras.Model):
         return output
 
 
-# In[94]:
+# In[8]:
 
 
 def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
+    if cfg["DEBUG"]:
+        tf.config.run_functions_eagerly(True)
+    else:
+        tf.config.run_functions_eagerly(False)
+
     N = cfg["N"]
     INPUT_IMAGE_SIZE = cfg["INPUT_IMAGE_SIZE"]
     input_layer = tf.keras.Input((INPUT_IMAGE_SIZE,INPUT_IMAGE_SIZE,3))
@@ -331,7 +376,8 @@ def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
             outputs = [
                 output_layer,  # (0)
                 rbm_loss_output# (1)
-            ]
+            ],
+            DEBUG = cfg["DEBUG"]
         )
 
     return model, optimizer
@@ -362,10 +408,10 @@ def compile_model(cfg):
         non_rbm_variables = [x for x in all_variables if (x.name not in rbm_variables_name)]
         
         kwargs["optimizers_and_variables_and_losses_and_name"] = (
-            (tf.optimizers.Adam(), non_rbm_variables, 
+            (tf.optimizers.SGD(learning_rate=0.01), non_rbm_variables, 
              lambda y_true, y_pred : tfa.losses.sigmoid_focal_crossentropy(y_true, y_pred[0]), # (0)
              "non-rbm"),
-            (tf.optimizers.Adam(), rbm_variables, 
+            (tf.optimizers.SGD(learning_rate=0.0001), rbm_variables, 
              lambda y_true, y_pred : y_pred[1], # (1)
              "rbm")
         )
@@ -406,13 +452,14 @@ def fit(model, cfg, epoch_start, epoch_end):
     )
 
 
-# In[ ]:
+# In[13]:
 
 
+# cfg["DEBUG"] = True
+cfg["DEBUG"] = False
 
 
-
-# In[95]:
+# In[14]:
 
 
 cfg = load_data(cfg)
