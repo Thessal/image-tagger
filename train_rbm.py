@@ -274,7 +274,7 @@ class RbmLoss(tf.keras.layers.Layer):
         return tf.reduce_mean( - h_term - b_term , axis=-1)
 
 
-# In[65]:
+# In[93]:
 
 
 from keras.engine import data_adapter
@@ -300,12 +300,14 @@ class MultiOptimizerModel(tf.keras.Model):
             
             loss_log["loss_"+name] = loss_value
             
-        output = self.compute_metrics(x, y, y_pred, sample_weight)
-        output.update(losses_log)
+        # Use first output for validation
+        output = self.compute_metrics(x, y, y_pred[0], sample_weight)
+        output.update(loss_log)
+        # print(loss_log, output)
         return output
 
 
-# In[72]:
+# In[94]:
 
 
 def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
@@ -367,9 +369,9 @@ def compile_model(cfg):
              lambda y_true, y_pred : y_pred[1], # (1)
              "rbm")
         )
-        kwargs["metrics"] = [
-            [],[]
-        ]
+#         kwargs["metrics"] = [
+#             [],[]
+#         ]
     else:
         raise NotImplementedError()
         
@@ -410,7 +412,7 @@ def fit(model, cfg, epoch_start, epoch_end):
 
 
 
-# In[78]:
+# In[95]:
 
 
 cfg = load_data(cfg)
