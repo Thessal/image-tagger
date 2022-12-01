@@ -3,26 +3,24 @@
 
 # In[1]:
 
-# Docker : 11.8.0-cudnn8-devel-ubuntu22.04
-# tf.__version__ : '2.8.0'
-# python --version : Python 3.8.10
-# NVIDIA-SMI 520.61.05    Driver Version: 520.61.05    CUDA Version: 11.8
-# pip install tensorflow-probability==0.16.0
+
+pip install tensorflow-probability==0.16.0
+
+
+# In[1]:
+
 
 import json
 import lzma, tarfile
 import tensorflow as tf
 import numpy as np
 import tensorflow_addons as tfa
-# from keras.layers import LeakyReLU
 import os 
 from datetime import datetime
 import matplotlib.pyplot as plt
 import tensorflow_probability as tfp
-
-
-# In[3]:
-
+import requests
+import io
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -33,490 +31,554 @@ if gpus:
         print(e)
 
 
+# In[2]:
+
+
+tf.keras.backend.clear_session()
+
+_cfg = {
+    "N":2000, "INPUT_IMAGE_SIZE":512, "normalize_label":True,
+    "RBM_N":2000, "RBM_STEP":3,
+    "lr":0.01, "rbm-lr":0.002, "rbm_regularization":False,
+    
+    "BATCH_SIZE":128, "BUFFER_SIZE":128*3, 
+    "model":"RBM", "DEBUG":False,
+    "logdir":f"./tensorboard-logs/{datetime.isoformat(datetime.now())}",
+}
+try:
+    cfg.update(_cfg)
+except:
+    cfg = _cfg.copy()
+
+
+# In[3]:
+
+
+# import pdb
+# from IPython.core.debugger import set_trace
+
+
 # In[4]:
 
 
-## Parameters
-# top tags
-N = 1000
-IMAGE_SIZE = 512
-VERBOSE = False
+def load_data(cfg):
+    N = cfg["N"]
+    if "tags_topN_name" not in cfg:
+        # Get tag list
+        with open("./tags/tags000000000000.json", "r") as f :
+            tags_d = [json.loads(line) for line in f.readlines()]
+        tags_top = sorted(
+            [x for x in tags_d if x["category"]=="0"], 
+            key=lambda x: int(x["post_count"]),
+            reverse=True
+        )
+        tags_topN = [x for x in tags_top[:N]]
+        tags_topN_name = sorted([x["name"] for x in tags_topN])
+        # sorted([x for x in tags_d if ("_chart" in x["name"]) and x['post_count']!='0'], key=lambda x:int(x["post_count"]), reverse=True)
+        cfg["tags_topN_name"]=tags_topN_name
 
-
-# In[5]:
-
-
-# Get tag list
-with open("./tags/tags000000000000.json", "r") as f :
-    tags_d = [json.loads(line) for line in f.readlines()]
-tags_top = sorted(
-    [x for x in tags_d if x["category"]=="0"], 
-    key=lambda x: int(x["post_count"]),
-    reverse=True
-)
-tags_topN = [x for x in tags_top[:N]]
-tags_topN_name = sorted([x["name"] for x in tags_topN])
-# sorted([x for x in tags_d if ("_chart" in x["name"]) and x['post_count']!='0'], key=lambda x:int(x["post_count"]), reverse=True)
-
-
-# In[6]:
-
-
-# Get image metadata
-tags_tarinfo = ['metadata/2017/2017000000000001', 'metadata/2017/2017000000000002', 'metadata/2017/2017000000000003', 'metadata/2017/2017000000000004', 'metadata/2017/2017000000000005', 'metadata/2017/2017000000000006', 'metadata/2017/2017000000000007', 'metadata/2017/2017000000000008', 'metadata/2017/2017000000000009', 'metadata/2017/2017000000000010', 'metadata/2017/2017000000000011', 'metadata/2017/2017000000000012', 'metadata/2017/2017000000000013', 'metadata/2017/2017000000000014', 'metadata/2017/2017000000000015', 'metadata/2017/2017000000000016', 'metadata/2018/2018000000000000', 'metadata/2018/2018000000000001', 'metadata/2018/2018000000000002', 'metadata/2018/2018000000000003', 'metadata/2018/2018000000000004', 'metadata/2018/2018000000000005', 'metadata/2018/2018000000000006', 'metadata/2018/2018000000000007', 'metadata/2018/2018000000000008', 'metadata/2018/2018000000000009', 'metadata/2018/2018000000000010', 'metadata/2018/2018000000000011', 'metadata/2018/2018000000000012', 'metadata/2018/2018000000000013', 'metadata/2018/2018000000000014', 'metadata/2018/2018000000000015', 'metadata/2018/2018000000000016', 'metadata/2019/2019000000000000', 'metadata/2019/2019000000000001', 'metadata/2019/2019000000000002', 'metadata/2019/2019000000000003', 'metadata/2019/2019000000000004', 'metadata/2019/2019000000000005', 'metadata/2019/2019000000000006', 'metadata/2019/2019000000000007', 'metadata/2019/2019000000000008', 'metadata/2019/2019000000000009', 'metadata/2019/2019000000000010', 'metadata/2019/2019000000000011', 'metadata/2019/2019000000000012', 'metadata/2020/2020000000000000', 'metadata/2020/2020000000000001', 'metadata/2020/2020000000000002', 'metadata/2020/2020000000000003', 'metadata/2020/2020000000000004', 'metadata/2020/2020000000000005', 'metadata/2020/2020000000000006', 'metadata/2020/2020000000000007', 'metadata/2020/2020000000000008', 'metadata/2020/2020000000000009', 'metadata/2020/2020000000000010', 'metadata/2020/2020000000000011', 'metadata/2020/2020000000000012', 'metadata/2020/2020000000000013', 'metadata/2020/2020000000000014', 'metadata/2020/2020000000000015', 'metadata/2021-old/2021000000000000', 'metadata/2021-old/2021000000000001', 'metadata/2021-old/2021000000000002', 'metadata/2021-old/2021000000000003', 'metadata/2021-old/2021000000000004', 'metadata/2021-old/2021000000000005', 'metadata/2021-old/2021000000000006', 'metadata/2021-old/2021000000000007', 'metadata/2021-old/2021000000000008', 'metadata/2021-old/2021000000000009', 'metadata/2021-old/2021000000000010', 'metadata/2021-old/2021000000000011', 'metadata/2021-old/2021000000000012', 'metadata/2021-old/2021000000000013', 'metadata/2021-old/2021000000000014', 'metadata/2021-old/2021000000000015', 'metadata/2021-old/2021000000000016']
-def get_tag():
-    tags_lst = {}
-    with tarfile.open(name='./tags/metadata.json.tar.xz', mode='r|xz') as tar:
-        # tarinfo = tar.next()
-        for tarinfo in tar:
-            print(tarinfo.name)
-            if tarinfo.isreg(): # regular file
-                tags_lst[tarinfo.name] = []
-                with tar.extractfile(tarinfo) as f:
-                    for line in f.readlines():
-                        try :
-                            result = json.loads(line)
-                            yield result
-                        except Exception as e:
-                            print(f"[json load] {e} : {line}")
-
-if not os.path.isfile("metadata_procesed.json.xz"):
-    tags_gen = get_tag()
-    with open('metadata_procesed.json.xz', 'wb', buffering=1024*1024) as f:
-        lzc = lzma.LZMACompressor()
-        data = b""
-        for x in tags_gen:
-            if (int(x["score"]) > 5) and (x['file_ext'].lower() in ['jpg', 'jpeg', 'bmp', 'png', 'gif']):
-                tag_processed = {
-                    "id": x['id'],
-                    "pools": x["pools"],
-                    "file_ext": x['file_ext'],
-                    "tags_": [tags_topN_name.index(t["name"]) for t in x["tags"] if (t["name"] in tags_topN_name)],
-                }
-                data += lzc.compress((json.dumps(tag_processed)+'\n').encode(encoding='utf-8'))
-        data += lzc.flush()
-        f.write(data)
-
-with lzma.open('metadata_procesed.json.xz', mode='rb') as f:
-    metadata = [json.loads(line) for line in f.readlines()]
-
-
-# In[8]:
-
-
-
-# activation = #tf.keras.layers.Lambda(lambda tensor : tf.keras.layers.ThresholdedReLU(theta=0.5)(tf.keras.layers.Softmax()(tensor))*2 )
-def activation_function(tensor):
-    prob = tf.keras.activations.softmax(tensor)
-    scale = tf.reduce_max(prob) 
-    thres_max = tfp.stats.percentile(prob, q=80.)
-    thres_min = tfp.stats.percentile(prob, q=20.)
-    saturate = 0.2
-    averse = 10
-    return prob + (saturate-1) * tf.clip_by_value(prob, thres_max, scale) + (averse-1) * tf.clip_by_value(prob, -thres_max, thres_min)
-
-# activation = tf.keras.layers.Lambda(lambda tensor : tf.keras.activations.relu(10*tf.keras.activations.softmax(tensor)) )
-activation = tf.keras.layers.Lambda(activation_function)
-test_x = np.arange(-1,2,0.1)[np.newaxis,:]
-test_y = activation(tf.convert_to_tensor(test_x)).numpy()
-plt.plot(test_x[0],test_y[0])
-
-
-# In[9]:
-
-
-def attention_reshape(image_batch):
-    # Reshapes input image
-    assert image_batch.dtype==tf.float32
-    patches = tf.image.extract_patches(
-                images=image_batch,
-                sizes=[1, 149, 149, 1],
-                strides=[1, 121, 121, 1],
-                rates=[1, 1, 1, 1],
-                padding="VALID",
-            )
-    patches = tf.reshape(patches,(-1,4,4,149,149,3))
-    attention = tf.keras.layers.MultiHeadAttention(
-        num_heads=4,
-        key_dim=3,
-        value_dim=None,
-        dropout=0.0,
-        use_bias=True,
-        output_shape=2,
-        attention_axes=(1,2),
-        kernel_initializer='glorot_uniform',
-        bias_initializer='zeros',
-        kernel_regularizer=None,
-        bias_regularizer=None,
-        activity_regularizer=None,
-        kernel_constraint=None,
-        bias_constraint=None,
-    )
-    self_attention = attention(patches,patches)
-    self_attention_stack = tf.reshape(tf.einsum('bYXyxc->byxYXc', self_attention), (10,149,149,32))
-    return self_attention_stack
-
-
-# In[10]:
-
-
-def patch_model(model, adapter_input):
-    # Divide and conquer
-    adapter_input_resize = tf.keras.layers.Resizing(1024,1024)(adapter_input) # FIXME
-    embed = tf.keras.Model(inputs=model.input, outputs=model.layers[-1].input)
-    patches = tf.image.extract_patches(
-                images=adapter_input_resize,
-                sizes=[1, 299, 299, 1], # model input size
-                strides=[1, 121, 121, 1], # patch size
-                rates=[1, 1, 1, 1],
-                padding="VALID",
-            )
-    patches = tf.reshape(patches,(-1,299,299,3))
-    vectors = tf.reshape(embed(patches), (-1,6*6,2048))
-    attention = tf.keras.layers.MultiHeadAttention(
-        num_heads=6,
-        key_dim=3, # TODO : Tune
-        value_dim=None,
-        dropout=0.0,
-        use_bias=True,
-        output_shape=None,
-        attention_axes=(1),
-        kernel_initializer='glorot_uniform',
-        bias_initializer='zeros',
-        kernel_regularizer=None,
-        bias_regularizer=None,
-        activity_regularizer=None,
-        kernel_constraint=None,
-        bias_constraint=None,
-    )
-    self_attention = attention(vectors,vectors)
-    result = model.layers[-1](tf.keras.layers.AveragePooling1D(pool_size=6*6,data_format="channels_last")(self_attention))
-    result = tf.einsum("abc->ac", result)
-    return result
-
-
-# In[11]:
-
-
-# Define model
-pretrained_model = tf.keras.applications.inception_v3.InceptionV3(
-    include_top=True,
-    weights='imagenet',
-    input_tensor=None,
-    input_shape=(299, 299, 3),
-    pooling=None,
-    classes=N,
-    classifier_activation='softmax'
-)
-
-custom_model = tf.keras.applications.inception_v3.InceptionV3(
-    include_top=True,
-    weights=None,
-    input_tensor=None,
-    input_shape=(299, 299, 3),
-    pooling=None,
-    classes=N,
-    classifier_activation=activation,
-    # Or, tf.keras.layers.Lambda(lambda tensor : tf.keras.layers.ThresholdedReLU(theta=0.5)(tf.keras.layers.Softmax()(tensor))*2 )
-)
-
-getname = lambda s : s[:len(s)-1-(s)[::-1].find("_")] if s[-1].isnumeric() else s
-for src, tgt in zip(pretrained_model.layers, custom_model.layers):
-    if ("activation" not in src.name):
-        try:
-            assert (getname(src.name) == getname(tgt.name))
-        except:
-            print(src.name, tgt.name)
-            raise Exception
-        tgt.set_weights(src.get_weights())
-
-adapter_input = tf.keras.Input((512,512,3))
-adapter_conv2d = tf.keras.layers.Conv2D(strides=(3,3),filters=32,padding='valid',kernel_size=(16,16))
-adapter_pooling = tf.keras.layers.MaxPooling2D(pool_size=(18, 18), strides=(1, 1), padding='valid')
-adapter_resize = tf.keras.layers.Resizing(299,299)
-
-####
-## (A) softmax
-base_model = pretrained_model
-## (B) Sparsemax
-# base_model = custom_model
-####
-## (A) Convolution resize
-# trim_model = tf.keras.Model(inputs=base_model.layers[2].input, outputs=base_model.output)
-# result = trim_model(adapter_pooling(adapter_conv2d(adapter_input)))
-## (B) Simple resize
-result = base_model(adapter_resize(adapter_input))
-## (C) Attention resize
-# trim_model = tf.keras.Model(inputs=base_model.layers[2].input, outputs=base_model.output)
-# result = trim_model(attention_reshape(adapter_input))
-## (D) Patch attention
-# result = patch_model(base_model, adapter_input)
-####
-
-model = tf.keras.Model(inputs=adapter_input, outputs=result)
-model.compile(optimizer='adam',
-              loss=tfa.losses.SigmoidFocalCrossEntropy(),
-              metrics=[
-                  tf.keras.metrics.KLDivergence(),
-                  tf.keras.metrics.CategoricalAccuracy(name='accuracy', dtype=None),
-                  tf.keras.losses.CategoricalCrossentropy(from_logits=False),
-                  tfa.losses.SigmoidFocalCrossEntropy(),
-                  tfa.losses.SparsemaxLoss(),
-                  tf.keras.losses.MeanAbsoluteError(),
-#                   tf.keras.metrics.SparseTopKCategoricalAccuracy(k=5),
-                  tf.keras.losses.Huber(delta=1.0),
-              ],
-             )
-
-# tf.keras.utils.plot_model(model.layers[3])
-
-
-# In[ ]:
-
-
-
-
-
-# In[12]:
-
-
-import requests
-train_set = metadata
-
-def _print(*args):
-    if VERBOSE:
-        print(*args)
-    
-encoder = tf.keras.layers.CategoryEncoding(output_mode="multi_hot", num_tokens=N)
-def gengen(data_set):
-    """
-    def gen_block():
-        # Reduces fs overhead
-        blocks = [f'http://192.168.20.50/blocks.txt']
-        for block in blocks
-            block_tar = block
-            with tarfile.open(io_block_tar, mode='r|xz') as tar:
+    if "metadata" not in cfg:
+        # Get image metadata
+        tags_tarinfo = ['metadata/2017/2017000000000001', 'metadata/2017/2017000000000002', 'metadata/2017/2017000000000003', 'metadata/2017/2017000000000004', 'metadata/2017/2017000000000005', 'metadata/2017/2017000000000006', 'metadata/2017/2017000000000007', 'metadata/2017/2017000000000008', 'metadata/2017/2017000000000009', 'metadata/2017/2017000000000010', 'metadata/2017/2017000000000011', 'metadata/2017/2017000000000012', 'metadata/2017/2017000000000013', 'metadata/2017/2017000000000014', 'metadata/2017/2017000000000015', 'metadata/2017/2017000000000016', 'metadata/2018/2018000000000000', 'metadata/2018/2018000000000001', 'metadata/2018/2018000000000002', 'metadata/2018/2018000000000003', 'metadata/2018/2018000000000004', 'metadata/2018/2018000000000005', 'metadata/2018/2018000000000006', 'metadata/2018/2018000000000007', 'metadata/2018/2018000000000008', 'metadata/2018/2018000000000009', 'metadata/2018/2018000000000010', 'metadata/2018/2018000000000011', 'metadata/2018/2018000000000012', 'metadata/2018/2018000000000013', 'metadata/2018/2018000000000014', 'metadata/2018/2018000000000015', 'metadata/2018/2018000000000016', 'metadata/2019/2019000000000000', 'metadata/2019/2019000000000001', 'metadata/2019/2019000000000002', 'metadata/2019/2019000000000003', 'metadata/2019/2019000000000004', 'metadata/2019/2019000000000005', 'metadata/2019/2019000000000006', 'metadata/2019/2019000000000007', 'metadata/2019/2019000000000008', 'metadata/2019/2019000000000009', 'metadata/2019/2019000000000010', 'metadata/2019/2019000000000011', 'metadata/2019/2019000000000012', 'metadata/2020/2020000000000000', 'metadata/2020/2020000000000001', 'metadata/2020/2020000000000002', 'metadata/2020/2020000000000003', 'metadata/2020/2020000000000004', 'metadata/2020/2020000000000005', 'metadata/2020/2020000000000006', 'metadata/2020/2020000000000007', 'metadata/2020/2020000000000008', 'metadata/2020/2020000000000009', 'metadata/2020/2020000000000010', 'metadata/2020/2020000000000011', 'metadata/2020/2020000000000012', 'metadata/2020/2020000000000013', 'metadata/2020/2020000000000014', 'metadata/2020/2020000000000015', 'metadata/2021-old/2021000000000000', 'metadata/2021-old/2021000000000001', 'metadata/2021-old/2021000000000002', 'metadata/2021-old/2021000000000003', 'metadata/2021-old/2021000000000004', 'metadata/2021-old/2021000000000005', 'metadata/2021-old/2021000000000006', 'metadata/2021-old/2021000000000007', 'metadata/2021-old/2021000000000008', 'metadata/2021-old/2021000000000009', 'metadata/2021-old/2021000000000010', 'metadata/2021-old/2021000000000011', 'metadata/2021-old/2021000000000012', 'metadata/2021-old/2021000000000013', 'metadata/2021-old/2021000000000014', 'metadata/2021-old/2021000000000015', 'metadata/2021-old/2021000000000016']
+        def get_tag():
+            tags_lst = {}
+            with tarfile.open(name='./tags/metadata.json.tar.xz', mode='r|xz') as tar:
+                # tarinfo = tar.next()
                 for tarinfo in tar:
-                    #print(tarinfo.name)
+                    print(tarinfo.name)
                     if tarinfo.isreg(): # regular file
-                        img_id, img_ext = os.path.split(tarinfo.name)
-                        info = train_dict[img_id]
-                        
-                        img_id = info["id"]
-                        img_ext = info["file_ext"]
-                        label = info["tags_"]
-                        if len(label) < 3 :
-                            _print(f"[error] {label}")
-                            continue
-                        
-                        
+                        tags_lst[tarinfo.name] = []
                         with tar.extractfile(tarinfo) as f:
-                            image = tf.io.read_file(path)
-                            image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
-                            label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?
-                            yield image, tf.squeeze(label_enc)
-    """
-    def gen():
-        # TODO : shuffle
-        for info in train_set:
-            img_id = info["id"]
-            img_ext = info["file_ext"]
-            label = info["tags_"]
-            if len(label) < 3 :
-                _print(f"[error] {label}")
+                            for line in f.readlines():
+                                try :
+                                    result = json.loads(line)
+                                    yield result
+                                except Exception as e:
+                                    print(f"[json load] {e} : {line}")
+
+        cache_path = f"metadata_procesed_TOP{N}.json.xz"
+        if not os.path.isfile(cache_path):
+            tags_gen = get_tag()
+            with open(cache_path, 'wb', buffering=1024*1024) as f:
+                lzc = lzma.LZMACompressor()
+                data = b""
+                for x in tags_gen:
+                    if (int(x["score"]) > 5) and (x['file_ext'].lower() in ['jpg', 'jpeg', 'bmp', 'png', 'gif']):
+                        tag_processed = {
+                            "id": x['id'],
+                            "pools": x["pools"],
+                            "file_ext": x['file_ext'],
+                            "tags_": [tags_topN_name.index(t["name"]) for t in x["tags"] if (t["name"] in tags_topN_name)],
+                        }
+                        data += lzc.compress((json.dumps(tag_processed)+'\n').encode(encoding='utf-8'))
+                data += lzc.flush()
+                f.write(data)
+
+        with lzma.open(cache_path, mode='rb') as f:
+            metadata = [json.loads(line) for line in f.readlines()]
+        cfg["metadata"]=metadata
+    return cfg
+
+
+# In[15]:
+
+
+class Datagen:
+    def __init__(self, metadata, N, verbose=True, normalize_label=False):
+        self.verbose=verbose
+        self.normalize_label=normalize_label
+        self.encoder = tf.keras.layers.CategoryEncoding(output_mode="multi_hot", num_tokens=N)
+        self.blocks = {str(x).zfill(4):dict() for x in range(1000)}
+        for info in metadata:
+            self.blocks[info["id"][-3:].zfill(4)][info['id']]=info
+        self.status = {"block":"", "id":""}
+            
+    def status(self):
+        print(self.status)
+        
+    def _print(self, *args):
+        if self.verbose:
+            print(*args)
+
+    def gen(self):
+        for block, metadata_dict in self.blocks.items():
+            self.status["block"] = block
+            if len(metadata_dict)==0 : 
                 continue
-                
-            path = f'http://192.168.20.50/danbooru2021/512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
-            try:
-                response = requests.get(path)
-                image = response.content
-                if response.status_code != 200:
-                    _print(f"[error] {path}")
-                    continue        
-                if False:
-                    path = f'./512px/0{img_id.rjust(7,"0")[-3:]}/{img_id}.{img_ext}'
-                    if not os.path.exists(path):
-                        _print(f"[error] {path}")
-                        continue
-                    image = tf.io.read_file(path)
-                image = tf.image.decode_image(image, channels=3, expand_animations=False, dtype=tf.uint8)
-                label_enc = tf.keras.utils.normalize(encoder(label)) # note : use logit?                
-                yield image, tf.squeeze(label_enc)
-            except:
-                print(f"[Error] {path}")
-    return gen
-    
-output_signature=(
-    tf.TensorSpec(shape=(512, 512, 3), dtype=tf.uint8),
-    tf.TensorSpec(shape=(1000), dtype=tf.float32),
-)
-dataset_train = tf.data.Dataset.from_generator( gengen(metadata[:-1000]), output_signature=output_signature)
-dataset_test = tf.data.Dataset.from_generator( gengen(metadata[-1000:]),output_signature=output_signature)
+            self._print(f"Requesting block {block}")
+            response = requests.get(f"http://192.168.20.50/danbooru2021/512px/{block}.tar")
+            assert(response.status_code==200)
+            self._print(f"Loaded block {block}")
+
+            with io.BytesIO(response.content) as io_tar:
+                with tarfile.open(fileobj=io_tar, mode='r|') as tar:
+                    self._print(f"Opened block {block}")
+                    for tarinfo in tar:
+                        if tarinfo.isreg(): # regular file
+                            img_id, img_ext = os.path.splitext(os.path.basename(tarinfo.name))
+                            img_ext = img_ext.replace(".","")
+                            self.status["id"] = img_id
+                            if img_id not in metadata_dict:
+                                self._print(f"{img_id} not found in metadata : {self.status}")
+                                continue
+                            info = metadata_dict[img_id]
+                            img_id = info["id"]
+                            img_ext = info["file_ext"]
+                            label = info["tags_"]
+                            if len(label) < 3 :
+                                self._print(f"[error] {label}")
+                                continue
+                            with tar.extractfile(tarinfo) as f:
+                                self._print(f"Read file {img_id, img_ext, label}")
+                                image = tf.image.decode_image(f.read(), channels=3, expand_animations=False, dtype=tf.uint8)
+                                if self.normalize_label:
+                                    label_enc = tf.keras.utils.normalize(self.encoder(label))
+                                else:
+                                    label_enc = self.encoder(label)
+                                if (image.shape[0]!=512) or (image.shape[1]!=512):
+                                    continue
+                                yield image, tf.squeeze(label_enc)
 
 
-                
-# Freeze convolution layers
-def freeze(unfreeze=False):
-    layer_count = 0
-    for layer in model.layers[-1].layers:
-        if layer.name.startswith("mixed"):
-            layer_count += 1
-        if layer.name.startswith("conv2d"):
-            layer.trainable = True if unfreeze else False
+def prepare_dataset(cfg, repeat=True):
+    if ("train_dataset" in cfg) and ("test_dataset" in cfg) : 
+        return cfg
+    metadata, N, INPUT_IMAGE_SIZE = cfg["metadata"], cfg["N"], cfg["INPUT_IMAGE_SIZE"]
+    BUFFER_SIZE, BATCH_SIZE = cfg["BUFFER_SIZE"], cfg["BATCH_SIZE"]
+    test_data_count = 1000
+    metadata_sort = sorted(metadata,key=lambda x: x["id"][-3:])
+    reader_train = Datagen(metadata_sort[:-test_data_count], N, verbose=False, normalize_label=cfg["normalize_label"])
+    reader_test = Datagen(metadata_sort[-test_data_count:], N, verbose=False, normalize_label=cfg["normalize_label"])
+    cfg["reader_train"] = reader_train
+    cfg["reader_test"] = reader_test
+
+    output_signature=(
+        tf.TensorSpec(shape=(INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 3), dtype=tf.uint8),
+        tf.TensorSpec(shape=(N), dtype=tf.float32),
+    )
+    dataset_train = tf.data.Dataset.from_generator(reader_train.gen, output_signature=output_signature)
+    dataset_test = tf.data.Dataset.from_generator(reader_test.gen, output_signature=output_signature)    
+    if repeat:
+        train_dataset = dataset_train.repeat().shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+        test_dataset = dataset_test.repeat().shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+    else:
+        train_dataset = dataset_train.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+        test_dataset = dataset_test.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+    cfg["train_dataset"] = train_dataset
+    cfg["test_dataset"] = test_dataset
+    return cfg
+
+# cfg.pop("train_dataset")
 
 
-# In[14]:
+# In[16]:
 
 
-TRAINING_BATCH_SIZE=128
-BUFFER_SIZE=TRAINING_BATCH_SIZE*3
-STEPS_PER_EPOCH=(2**15)//TRAINING_BATCH_SIZE
-CORES_COUNT= 2
-EPOCHS = 3 * len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH
-UNFREEZE_EPOCH = len(train_set) // TRAINING_BATCH_SIZE // STEPS_PER_EPOCH // 30
+def load_pretrained_model_01():
+    # tf.keras.models.save_model(model, "./model.hdf5")
+    # tf.keras.models.load_model("./model.hdf5")
+    # !tensorflowjs_converter --input_format=keras ./model_tfjs.h5 /tfjs_model
 
-# Checkpoints
-output_path = "./model"
-class DisplayCallback(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
-        if not os.path.exists(output_path):
-            os.makedirs(output_path)
-        with open (f"{output_path}/loss_{epoch}.json", "w") as f :
-            f.write(json.dumps(logs))           
-logdir = f"./tensorboard-logs/{datetime.isoformat(datetime.now())}"
-tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+    base_model = tf.keras.applications.inception_v3.InceptionV3(
+        include_top=True,
+        weights=None,
+        input_tensor=None,
+        input_shape=(299, 299, 3),
+        classes=1000,
+        classifier_activation='softmax'
+    )
 
-train_dataset = dataset_train.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)#.cache()
-test_dataset = dataset_test.repeat().shuffle(BUFFER_SIZE).batch(TRAINING_BATCH_SIZE)#.cache()
+    # load pretrained model
+    adapter_input = tf.keras.Input((512,512,3))
+    adapter_resize = tf.keras.layers.Resizing(299,299)
+    result = base_model(adapter_resize(adapter_input))
+    model = tf.keras.Model(inputs=adapter_input, outputs=result)
+    model.load_weights("./model/weights-improvement-145-2.71.hdf5")
+    return model
 
 
 # In[ ]:
 
 
-filepath=output_path+"/weights-improvement-{epoch:02d}.hdf5"
-checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_kullback_leibler_divergence', verbose=1, save_best_only=True, mode='min')
-model.compile(optimizer='adam',
-              loss=tfa.losses.SigmoidFocalCrossEntropy(),
-              metrics=[
-                  tf.keras.metrics.KLDivergence(),
-                  tf.keras.losses.CategoricalCrossentropy(from_logits=False),
-                  tfa.losses.SigmoidFocalCrossEntropy(),
-                  tfa.losses.SparsemaxLoss(),
-                  tf.keras.losses.MeanAbsoluteError(),
-                  tf.keras.losses.Huber(delta=1.0),
-              ],
-             )
-
-freeze(base_model)
-model.summary()
-model_history = model.fit(train_dataset,
-                          epochs=30,
-                          steps_per_epoch=STEPS_PER_EPOCH,
-                          validation_data=test_dataset,
-                          validation_steps=1+STEPS_PER_EPOCH//10,
-                          use_multiprocessing=True,
-                          workers=CORES_COUNT,
-                          callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
 
 
-# In[20]:
+
+# In[ ]:
 
 
-freeze(base_model,unfreeze=True)
-model.summary()
-model_history = model.fit(train_dataset,
-                          initial_epoch=UNFREEZE_EPOCH,
-                          epochs=100,
-                          steps_per_epoch=STEPS_PER_EPOCH,
-                          validation_data=test_dataset,
-                          validation_steps=1+STEPS_PER_EPOCH//10,
-                          use_multiprocessing=True,
-                          workers=CORES_COUNT,
-                          callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
 
 
-# In[71]:
+
+# In[17]:
 
 
-class HeadKCategoricalCrossEntropy(tf.keras.metrics.MeanMetricWrapper):
-    def __init__(self, k=200, name="head_k_categorical_crossentorpy", dtype=None):
-        super().__init__(
-            lambda yt, yp: tf.keras.metrics.categorical_crossentropy(
-                yt[:,:k], yp[:,:k]
-            ),
-            name,
-            dtype=dtype,
-        )
+class Rbm(tf.keras.layers.Layer):
+    ## nn.register_parameter would be handy 
+    def __init__(self, nv, nh, cd_steps):
+        super(Rbm, self).__init__()
             
-class WeightKCategoricalCrossEntropy(tf.keras.metrics.MeanMetricWrapper):
-    def __init__(self, name="weighted_k_categorical_crossentropy", dtype=None):
-        # Weight on starting 200 element of 1000 element
-        sigm = lambda x : 1 / ( 1 +np.exp(0.02*(-x+800)))
-        self.weight=sigm(np.arange(1000,0,-1))
-        super().__init__(
-            lambda yt, yp: tf.keras.metrics.categorical_crossentropy(
-                yt*self.weight, yp*self.weight
-            ),
-            name,
-            dtype=dtype,
-        )
-
-import keras
-class WeightKCategoricalCrossEntropyLoss(keras.losses.LossFunctionWrapper):
-    def __init__(self, 
-                 name="weighted_k_categorical_crossentropy_loss",
-                 reduction=keras.losses.losses_utils.ReductionV2.AUTO,
-                ):
-        # Weight on starting 200 element of 1000 element
-        sigm = lambda x : 1 / ( 1 +np.exp(0.02*(-x+800)))
-        self.weight=tf.convert_to_tensor(sigm(np.arange(1000,0,-1)), dtype=np.float32)
-        super().__init__(
-            lambda yt, yp: tf.keras.losses.categorical_crossentropy(
-                yt*self.weight, yp*self.weight
-            ),
-            name=name,
-            reduction=reduction,
-        )
+        # TODO : constraint, regularization
+        self.W = self.add_weight(name='W', shape=(nv, nh), trainable=True)
+        self.W.assign(tf.random.truncated_normal((nv, nh)) * 0.01)
+        self.bv = self.add_weight(name='bias_visible', shape=(nv,), trainable=True)
+        self.bh = self.add_weight(name='bias_hidden', shape=(nh,), trainable=True)
+        self.cd_steps = cd_steps
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "cd_steps": self.cd_steps,
+        })
+        return config
         
-checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    filepath,       
-    monitor='val_crossentropy',
-    verbose=1, 
-)
+    def sample_h(self, v):
+        ph_given_v = tf.sigmoid(tf.einsum('vh,bv->bh', self.W, v) + tf.expand_dims(self.bh, axis=0))
+        return self.bernoulli(ph_given_v)
+      
+    def sample_v(self, h):
+        pv_given_h = tf.sigmoid(tf.einsum('vh,bh->bv', self.W, h) + tf.expand_dims(self.bv, axis=0))
+        return self.bernoulli(pv_given_h)
+    
+    def bernoulli(self, p):
+        # Note : No intra-batch randomness
+        return tf.nn.relu(tf.sign(p - tf.random.uniform([1] + p.shape[1:])))
+    
+    def call(self, inputs):
+#         v = inputs
+        v = tf.round(inputs) # softmax output to binary
+        vk = tf.identity(v)
+        for i in range(self.cd_steps):
+            # Gibbs step
+            hk = self.sample_h(vk)
+            vk = self.sample_v(hk)
+        # print("v", v[0][:3])
+        # print("vk", vk[0][:3])
+        return vk
+    
 
-model.compile(optimizer='SGD',
-              loss=[
-                    tfa.losses.SigmoidFocalCrossEntropy()
-              ],
-              metrics=[
-                  tf.keras.metrics.KLDivergence(),
-                  tf.keras.losses.CategoricalCrossentropy(from_logits=False),
-                  WeightKCategoricalCrossEntropy(name='accuracy'), # TODO : rename 'accuracy'
-                  HeadKCategoricalCrossEntropy(k=200),
-                  tfa.losses.SigmoidFocalCrossEntropy(),
-                  tfa.losses.SparsemaxLoss(),
-                  tf.keras.losses.MeanAbsoluteError(),
-                  tf.keras.losses.Huber(delta=1.0),
-              ],
-             )
+class RbmLoss(tf.keras.layers.Layer):
+    def __init__(self, rbm_layer, regularization=False, debug=False):
+        super(RbmLoss, self).__init__()
+        
+        self.regularization = regularization
+        if self.regularization:
+            self.regularizer = tf.keras.regularizers.L1L2(l1=1e-5, l2=1e-4)
+        self.debug = debug
+        
+        # Cannot be serialized
+        # Only used for training
+        self.W = rbm_layer.W
+        self.bv = rbm_layer.bv
+        self.bh = rbm_layer.bh
+        
+    def call(self, v_in, v_out):
+        # only grad for W, b
+        tf.stop_gradient(v_in) # not sure
+        tf.stop_gradient(v_out)
+        v_in_bin = tf.round(v_in) # softmax output to binary
+        W, bv, bh = self.W, self.bv, self.bh
+        loss = tf.subtract(self.energy(v_in_bin, W, bv, bh), self.energy(v_out, W, bv, bh))
+        if self.debug:
+            print("+++")
+            print("W", tf.reduce_mean(W))
+            print("bv", tf.reduce_mean(bv))
+            print("bh", tf.reduce_mean(bh))
+            print("e1", tf.reduce_mean(self.energy(v_in_bin, W, bv, bh)))
+            print("e2", tf.reduce_mean(self.energy(v_out, W, bv, bh)))
+    #         print("e1", self.energy(v_in_bin, W, bv, bh))
+    #         print("e2", self.energy(v_out, W, bv, bh))
+            print("loss", tf.reduce_mean(loss))
+            print("+++")
+        if self.regularization:
+            loss += self.regularizer(W)
+        return loss
+            
+    def energy(self, v, W, bv, bh):
+        # NOTE : v is not normalized. If grad is not stable, then do regularization
+        b_term = tf.expand_dims(tf.einsum("bx,y->b", v, bv), axis=1)
+        linear_transform  = tf.einsum("bh,hx->bx", v, W) + tf.expand_dims(bh, axis=0)
+        h_term = tf.expand_dims(tf.reduce_sum(tf.math.log(tf.exp(linear_transform) + 1), axis=1), axis=1)
+        return tf.reduce_mean( - h_term - b_term , axis=-1)
+
+
+# In[18]:
+
+
+from keras.engine import data_adapter
+class MultiOptimizerModel(tf.keras.Model):
+    def __init__(self, DEBUG=False, **kwargs):
+        super(MultiOptimizerModel, self).__init__(**kwargs)
+        self.DEBUG = DEBUG
+        
+    def compile(self, optimizer, optimizers_and_variables_and_losses_and_name, **kwargs):
+        super().compile(optimizer, **kwargs)
+        self.optimizers_and_variables_and_losses_and_name = optimizers_and_variables_and_losses_and_name
+        # optimizer : default optimizer
+        # optimizers_and_layers_and_losses : [(optimizer, variable list, loss fn), ...] 
+
+    def train_step(self, data):
+        x, y, sample_weight = data_adapter.unpack_x_y_sample_weight(data)
+        
+        loss_logs = {}
+        for optimizer, variable, loss, name in self.optimizers_and_variables_and_losses_and_name:
+            # Run forward pass.
+            if self.DEBUG:
+                with tf.GradientTape() as tape:
+                    y_pred = self(x, training=True)
+                    loss_value = loss(y,y_pred)
+                    print("===")
+                    grads = tape.gradient(loss_value, variable)
+                    print(name, loss_value.numpy())
+                    print(name, [(n.name, np.ravel(x.numpy())[:3]) for n, x in zip(variable, grads)])
+                    print("===")
+
+            with tf.GradientTape() as tape:
+                y_pred = self(x, training=True)
+                loss_value = loss(y,y_pred)
+                loss_reduce = tf.reduce_mean(loss_value)
+
+            # Run backwards pass.
+            ## (A) reduction='sum_over_batch_size'
+            optimizer.minimize(loss_reduce, variable, tape=tape)
+            ## (B) reduction=None
+            # optimizer.minimize(loss_value, variable, tape=tape)
+            
+            loss_logs["loss_"+name] = loss_reduce
+            
+        # Use first output for validation
+        output = self.compute_metrics(x, y, y_pred[0], sample_weight)
+        output.update(loss_logs)
+        # print(loss_log, output)
+        return output
+
+
+# In[ ]:
+
+
+
+
+
+# In[19]:
+
+
+def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
+    if cfg["DEBUG"]:
+        tf.config.run_functions_eagerly(True)
+    else:
+        tf.config.run_functions_eagerly(False)
+
+    N = cfg["N"]
+    INPUT_IMAGE_SIZE = cfg["INPUT_IMAGE_SIZE"]
+    input_layer = tf.keras.Input((INPUT_IMAGE_SIZE,INPUT_IMAGE_SIZE,3))
+    intermediate_model = tf.keras.Model(inputs=base_model.layers[-1].input, outputs=base_model.layers[-1].layers[-2].output)
+    intermediate_layer = intermediate_model(tf.keras.layers.Resizing(299,299)(input_layer))
+
+    if cfg["model"]=="default":
+        output_layer = tf.keras.layers.Dense(N)(intermediate_layer)
+        model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
+    elif cfg["model"]=="RBM":
+        rbm_layer = Rbm(intermediate_layer.shape[-1], cfg["RBM_N"], cfg["RBM_STEP"])
+        rbm_loss = RbmLoss(rbm_layer, regularization=cfg["rbm_regularization"], debug=cfg["DEBUG"])
+        rbm_output = rbm_layer(intermediate_layer)
+        output_layer = tf.keras.activations.sigmoid(tf.keras.layers.Dense(N)(rbm_output))
+        rbm_loss_output = rbm_loss(intermediate_layer, rbm_output)
+        model = MultiOptimizerModel( 
+            inputs = input_layer, 
+            outputs = [
+                output_layer,  # (0)
+                rbm_loss_output# (1)
+            ],
+            DEBUG = cfg["DEBUG"]
+        )
+
+    return model, optimizer
+
+def compile_model(cfg):
+    kwargs = {
+        "optimizer" : 'SGD',
+        "loss" : None,
+        "metrics" : [
+            tf.keras.metrics.KLDivergence(),
+            tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+            tfa.losses.SigmoidFocalCrossEntropy(),
+            tfa.losses.SparsemaxLoss(),
+            tf.keras.losses.MeanAbsoluteError(),
+            tf.keras.losses.Huber(delta=1.0),
+        ],
+    }
+    if cfg["model"]=="default":
+        kwargs["loss"] = tfa.losses.SigmoidFocalCrossEntropy()
+    elif cfg["model"]=="RBM":
+        all_variables = model.trainable_variables
+        rbm_variables = []
+        for x in model.layers:
+            if x.name.split("_")[0]=="rbm":
+                rbm_variables += x.trainable_variables
+        rbm_variables = list({x.name:x for x in rbm_variables}.values())
+        rbm_variables_name = [x.name for x in rbm_variables]
+        non_rbm_variables = [x for x in all_variables if (x.name not in rbm_variables_name)]
+        
+        kwargs["optimizers_and_variables_and_losses_and_name"] = (
+            (tf.optimizers.SGD(learning_rate=cfg["lr"]), non_rbm_variables, 
+             lambda y_true, y_pred : tfa.losses.sigmoid_focal_crossentropy(y_true, y_pred[0]), # (0)
+             "non-rbm"),
+            (tf.optimizers.SGD(learning_rate=cfg["rbm-lr"]), rbm_variables, 
+             lambda y_true, y_pred : y_pred[1], # (1)
+             "rbm")
+        )
+#         kwargs["metrics"] = [
+#             [],[]
+#         ]
+    else:
+        raise NotImplementedError()
+        
+    model.compile(**kwargs)
+    
+def fit(model, cfg, epoch_start, epoch_end):
+    output_path = "./model"
+    class DisplayCallback(tf.keras.callbacks.Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            print('\n    - Training finished for epoch {}\n'.format(epoch + 1))
+            if not os.path.exists(output_path):
+                os.makedirs(output_path)
+            print(logs)
+#             with open (f"{output_path}/loss_{epoch}.json", "w") as f :
+#                 f.write(json.dumps(logs))           
+#     filepath=output_path+"/weights-improvement-{epoch:02d}-{val_loss_non-rbm:.2f}.hdf5"
+#     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss_non-rbm', verbose=1, save_best_only=True, mode='min')
+    filepath=output_path+"/rbm-{epoch:02d}.ckpt"
+#     filepath=output_path+"/rbm-{epoch:02d}.hdf5"
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, verbose=1, save_best_only=False)
+    logdir = cfg["logdir"]
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+    
+
+    STEPS_PER_EPOCH=(2**15)//cfg["BATCH_SIZE"]
+#     STEPS_PER_EPOCH=10
+    model.fit(
+        cfg["train_dataset"],
+        epochs=epoch_end,
+        initial_epoch=epoch_start,
+        steps_per_epoch=STEPS_PER_EPOCH,
+        validation_data=cfg["test_dataset"],
+        validation_steps=1+STEPS_PER_EPOCH//10,
+        use_multiprocessing=True,
+        workers=2,
+        callbacks=[DisplayCallback(), checkpoint, tensorboard_callback]
+    )
+
+
+# In[24]:
+
+
+# cfg["DEBUG"] = True
+cfg["DEBUG"] = False
+
+
+# In[25]:
+
+
+cfg = load_data(cfg)
+cfg = prepare_dataset(cfg)
+print(cfg.keys())
+base_model = load_pretrained_model_01()
+model, optimizer = modify_model(base_model, cfg)
+
 model.summary()
-model_history = model.fit(train_dataset,
-                          initial_epoch=100,
-                          epochs=150, #EPOCHS,
-                          steps_per_epoch=STEPS_PER_EPOCH,
-                          validation_data=test_dataset,
-                          validation_steps=1+STEPS_PER_EPOCH//10,
-                          use_multiprocessing=True,
-                          workers=CORES_COUNT,
-                          callbacks=[DisplayCallback(), checkpoint, tensorboard_callback])
+tf.keras.utils.plot_model(model)
 
 
-model.save_weights("./model/weights.hdf5")
+# In[26]:
 
 
-# !tensorflowjs_converter --help
-# tf.keras.models.save_model(pretrained_model, "./model_tfjs.h5")
-# !tensorflowjs_converter --input_format=keras ./model_tfjs.h5 /tfjs_model
+cfg["reader_train"].status
+
+
+# In[27]:
+
+
+# tf.config.run_functions_eagerly(True)
+
+# model.summary()
+base_model.trainable=False # Freeze except rbm & dense
+compile_model(cfg)
+fit(model, cfg, 0, 20)
+
+base_model.trainable=True 
+compile_model(cfg)
+fit(model, cfg, 20, 100)
+
+
+# In[ ]:
+
+
+# fit(model, cfg, 12, 20)
+
+# base_model.trainable=True 
+# compile_model(cfg)
+# fit(model, cfg, 20, 100)
+
+
+# In[ ]:
+
+
+cfg["reader_train"].status
+
+
+# In[ ]:
+
+
+tf.keras.models.save_model(model, "./model.ckpt")
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
 
 
