@@ -4,10 +4,11 @@
 # In[1]:
 
 
-pip install tensorflow-probability==0.16.0
+# !pip install tensorflow-probability==0.16.0
+# !pip install tensorflow==2.8.0
 
 
-# In[2]:
+# In[1]:
 
 
 import json
@@ -30,22 +31,32 @@ if gpus:
     except RuntimeError as e:
         print(e)
 
-cfg = {
-    "N":2000, "INPUT_IMAGE_SIZE":512, 
-    "RBM_N":2000, "RBM_STEP":3,
+
+# In[2]:
+
+
+tf.keras.backend.clear_session()
+
+_cfg = {
+    "N":5000, "INPUT_IMAGE_SIZE":512, "normalize_label":False,
+    "RBM_N":1000, "RBM_STEP":3,
+    "lr":0.01, "rbm-lr":0.01, "rbm_regularization":False,
     
     "BATCH_SIZE":128, "BUFFER_SIZE":128*3, 
     "model":"RBM", "DEBUG":False,
     "logdir":f"./tensorboard-logs/{datetime.isoformat(datetime.now())}",
 }
+try:
+    cfg.update(_cfg)
+except:
+    cfg = _cfg.copy()
 
 
 # In[3]:
 
 
-import pdb
-from IPython.core.debugger import set_trace
-tf.keras.backend.clear_session()
+# import pdb
+# from IPython.core.debugger import set_trace
 
 
 # In[4]:
@@ -69,7 +80,7 @@ def load_data(cfg):
 
     if "metadata" not in cfg:
         # Get image metadata
-        tags_tarinfo = ['metadata/2017/2017000000000001', 'metadata/2017/2017000000000002', 'metadata/2017/2017000000000003', 'metadata/2017/2017000000000004', 'metadata/2017/2017000000000005', 'metadata/2017/2017000000000006', 'metadata/2017/2017000000000007', 'metadata/2017/2017000000000008', 'metadata/2017/2017000000000009', 'metadata/2017/2017000000000010', 'metadata/2017/2017000000000011', 'metadata/2017/2017000000000012', 'metadata/2017/2017000000000013', 'metadata/2017/2017000000000014', 'metadata/2017/2017000000000015', 'metadata/2017/2017000000000016', 'metadata/2018/2018000000000000', 'metadata/2018/2018000000000001', 'metadata/2018/2018000000000002', 'metadata/2018/2018000000000003', 'metadata/2018/2018000000000004', 'metadata/2018/2018000000000005', 'metadata/2018/2018000000000006', 'metadata/2018/2018000000000007', 'metadata/2018/2018000000000008', 'metadata/2018/2018000000000009', 'metadata/2018/2018000000000010', 'metadata/2018/2018000000000011', 'metadata/2018/2018000000000012', 'metadata/2018/2018000000000013', 'metadata/2018/2018000000000014', 'metadata/2018/2018000000000015', 'metadata/2018/2018000000000016', 'metadata/2019/2019000000000000', 'metadata/2019/2019000000000001', 'metadata/2019/2019000000000002', 'metadata/2019/2019000000000003', 'metadata/2019/2019000000000004', 'metadata/2019/2019000000000005', 'metadata/2019/2019000000000006', 'metadata/2019/2019000000000007', 'metadata/2019/2019000000000008', 'metadata/2019/2019000000000009', 'metadata/2019/2019000000000010', 'metadata/2019/2019000000000011', 'metadata/2019/2019000000000012', 'metadata/2020/2020000000000000', 'metadata/2020/2020000000000001', 'metadata/2020/2020000000000002', 'metadata/2020/2020000000000003', 'metadata/2020/2020000000000004', 'metadata/2020/2020000000000005', 'metadata/2020/2020000000000006', 'metadata/2020/2020000000000007', 'metadata/2020/2020000000000008', 'metadata/2020/2020000000000009', 'metadata/2020/2020000000000010', 'metadata/2020/2020000000000011', 'metadata/2020/2020000000000012', 'metadata/2020/2020000000000013', 'metadata/2020/2020000000000014', 'metadata/2020/2020000000000015', 'metadata/2021-old/2021000000000000', 'metadata/2021-old/2021000000000001', 'metadata/2021-old/2021000000000002', 'metadata/2021-old/2021000000000003', 'metadata/2021-old/2021000000000004', 'metadata/2021-old/2021000000000005', 'metadata/2021-old/2021000000000006', 'metadata/2021-old/2021000000000007', 'metadata/2021-old/2021000000000008', 'metadata/2021-old/2021000000000009', 'metadata/2021-old/2021000000000010', 'metadata/2021-old/2021000000000011', 'metadata/2021-old/2021000000000012', 'metadata/2021-old/2021000000000013', 'metadata/2021-old/2021000000000014', 'metadata/2021-old/2021000000000015', 'metadata/2021-old/2021000000000016']
+        # tags_tarinfo = ['metadata/2017/2017000000000001', 'metadata/2017/2017000000000002', 'metadata/2017/2017000000000003', 'metadata/2017/2017000000000004', 'metadata/2017/2017000000000005', 'metadata/2017/2017000000000006', 'metadata/2017/2017000000000007', 'metadata/2017/2017000000000008', 'metadata/2017/2017000000000009', 'metadata/2017/2017000000000010', 'metadata/2017/2017000000000011', 'metadata/2017/2017000000000012', 'metadata/2017/2017000000000013', 'metadata/2017/2017000000000014', 'metadata/2017/2017000000000015', 'metadata/2017/2017000000000016', 'metadata/2018/2018000000000000', 'metadata/2018/2018000000000001', 'metadata/2018/2018000000000002', 'metadata/2018/2018000000000003', 'metadata/2018/2018000000000004', 'metadata/2018/2018000000000005', 'metadata/2018/2018000000000006', 'metadata/2018/2018000000000007', 'metadata/2018/2018000000000008', 'metadata/2018/2018000000000009', 'metadata/2018/2018000000000010', 'metadata/2018/2018000000000011', 'metadata/2018/2018000000000012', 'metadata/2018/2018000000000013', 'metadata/2018/2018000000000014', 'metadata/2018/2018000000000015', 'metadata/2018/2018000000000016', 'metadata/2019/2019000000000000', 'metadata/2019/2019000000000001', 'metadata/2019/2019000000000002', 'metadata/2019/2019000000000003', 'metadata/2019/2019000000000004', 'metadata/2019/2019000000000005', 'metadata/2019/2019000000000006', 'metadata/2019/2019000000000007', 'metadata/2019/2019000000000008', 'metadata/2019/2019000000000009', 'metadata/2019/2019000000000010', 'metadata/2019/2019000000000011', 'metadata/2019/2019000000000012', 'metadata/2020/2020000000000000', 'metadata/2020/2020000000000001', 'metadata/2020/2020000000000002', 'metadata/2020/2020000000000003', 'metadata/2020/2020000000000004', 'metadata/2020/2020000000000005', 'metadata/2020/2020000000000006', 'metadata/2020/2020000000000007', 'metadata/2020/2020000000000008', 'metadata/2020/2020000000000009', 'metadata/2020/2020000000000010', 'metadata/2020/2020000000000011', 'metadata/2020/2020000000000012', 'metadata/2020/2020000000000013', 'metadata/2020/2020000000000014', 'metadata/2020/2020000000000015', 'metadata/2021-old/2021000000000000', 'metadata/2021-old/2021000000000001', 'metadata/2021-old/2021000000000002', 'metadata/2021-old/2021000000000003', 'metadata/2021-old/2021000000000004', 'metadata/2021-old/2021000000000005', 'metadata/2021-old/2021000000000006', 'metadata/2021-old/2021000000000007', 'metadata/2021-old/2021000000000008', 'metadata/2021-old/2021000000000009', 'metadata/2021-old/2021000000000010', 'metadata/2021-old/2021000000000011', 'metadata/2021-old/2021000000000012', 'metadata/2021-old/2021000000000013', 'metadata/2021-old/2021000000000014', 'metadata/2021-old/2021000000000015', 'metadata/2021-old/2021000000000016']
         def get_tag():
             tags_lst = {}
             with tarfile.open(name='./tags/metadata.json.tar.xz', mode='r|xz') as tar:
@@ -120,6 +131,15 @@ class Datagen:
         self.encoder = tf.keras.layers.CategoryEncoding(output_mode="multi_hot", num_tokens=N)
         self.blocks = {str(x).zfill(4):dict() for x in range(1000)}
         for info in metadata:
+            # There are duplicate items with different value, Overwriting...
+#             if info['id'] in self.blocks[info["id"][-3:].zfill(4)]:
+#                 old = self.blocks[info['id'][-3:].zfill(4)][info['id']]
+#                 new = info
+#                 if str(old) != str(new):
+#                     print("Duplicates")
+#                     print(f"old : {old}")
+#                     print(f"new : {new}")
+#                     raise ValueError()
             self.blocks[info["id"][-3:].zfill(4)][info['id']]=info
         self.status = {"block":"", "id":""}
             
@@ -160,12 +180,20 @@ class Datagen:
                                 continue
                             with tar.extractfile(tarinfo) as f:
                                 self._print(f"Read file {img_id, img_ext, label}")
-                                image = tf.image.decode_image(f.read(), channels=3, expand_animations=False, dtype=tf.uint8)
-                                if self.normalize_label:
-                                    label_enc = tf.keras.utils.normalize(encoder(label))
-                                else:
-                                    label_enc = self.encoder(label)
-                                yield image, tf.squeeze(label_enc)
+                                try:
+                                    if info["id"] in ['3928385']: 
+                                        #{'block': '0385', 'id': '3928385'} jpeg::Uncompress failed. Invalid JPEG data or crop window. [Op:DecodeImage]
+                                        continue
+                                    image = tf.image.decode_image(f.read(), channels=3, expand_animations=False, dtype=tf.uint8)
+                                    if self.normalize_label:
+                                        label_enc = tf.keras.utils.normalize(self.encoder(label))
+                                    else:
+                                        label_enc = self.encoder(label)
+                                    if (image.shape[0]!=512) or (image.shape[1]!=512):
+                                        continue
+                                    yield image, tf.squeeze(label_enc)
+                                except:
+                                    self._print(f"{info} : failed")
 
 
 def prepare_dataset(cfg, repeat=True):
@@ -175,10 +203,10 @@ def prepare_dataset(cfg, repeat=True):
     BUFFER_SIZE, BATCH_SIZE = cfg["BUFFER_SIZE"], cfg["BATCH_SIZE"]
     test_data_count = 1000
     metadata_sort = sorted(metadata,key=lambda x: x["id"][-3:])
-    reader_train = Datagen(metadata_sort[:-test_data_count], N, verbose=False)
-    reader_test = Datagen(metadata_sort[-test_data_count:], N, verbose=False)
-#     reader_train = Datagen(metadata_sort[:-test_data_count], N, verbose=True)
-#     reader_test = Datagen(metadata_sort[-test_data_count:], N, verbose=True)
+    reader_train = Datagen(metadata_sort[:-test_data_count], N, verbose=False, normalize_label=cfg["normalize_label"])
+    reader_test = Datagen(metadata_sort[-test_data_count:], N, verbose=False, normalize_label=cfg["normalize_label"])
+    cfg["reader_train"] = reader_train
+    cfg["reader_test"] = reader_test
 
     output_signature=(
         tf.TensorSpec(shape=(INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 3), dtype=tf.uint8),
@@ -225,29 +253,19 @@ def load_pretrained_model_01():
     return model
 
 
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[7]:
+# In[29]:
 
 
 class Rbm(tf.keras.layers.Layer):
     ## nn.register_parameter would be handy 
     def __init__(self, nv, nh, cd_steps):
         super(Rbm, self).__init__()
+            
+        # TODO : constraint, regularization
         self.W = self.add_weight(name='W', shape=(nv, nh), trainable=True)
         self.W.assign(tf.random.truncated_normal((nv, nh)) * 0.01)
-        self.bv = self.add_weight(name='bias_visible', shape=(nv,)) 
-        self.bh = self.add_weight(name='bias_hidden', shape=(nh,)) 
+        self.bv = self.add_weight(name='bias_visible', shape=(nv,), trainable=True)
+        self.bh = self.add_weight(name='bias_hidden', shape=(nh,), trainable=True)
         self.cd_steps = cd_steps
     
     def get_config(self):
@@ -270,8 +288,14 @@ class Rbm(tf.keras.layers.Layer):
         return tf.nn.relu(tf.sign(p - tf.random.uniform([1] + p.shape[1:])))
     
     def call(self, inputs):
-        v = inputs
-        # v = tf.round(inputs) # Use if input is binary # We are using intermediate layer, so skipping
+#         v = inputs
+        v = tfp.math.clip_by_value_preserve_gradient(
+            inputs, clip_value_min=0, clip_value_max=1
+        )
+#         v = tf.round(inputs) # softmax output to binary # nondifferentiable
+# tfc.ops.soft_round(
+#     x, alpha, eps=0.001
+# )
         vk = tf.identity(v)
         for i in range(self.cd_steps):
             # Gibbs step
@@ -283,8 +307,13 @@ class Rbm(tf.keras.layers.Layer):
     
 
 class RbmLoss(tf.keras.layers.Layer):
-    def __init__(self, rbm_layer):
+    def __init__(self, rbm_layer, regularization=False, debug=False):
         super(RbmLoss, self).__init__()
+        
+        self.regularization = regularization
+        if self.regularization:
+            self.regularizer = tf.keras.regularizers.L1L2(l1=1e-5, l2=1e-4)
+        self.debug = debug
         
         # Cannot be serialized
         # Only used for training
@@ -294,11 +323,28 @@ class RbmLoss(tf.keras.layers.Layer):
         
     def call(self, v_in, v_out):
         # only grad for W, b
-        tf.stop_gradient(v_in)
+        tf.stop_gradient(v_in) # not sure
         tf.stop_gradient(v_out)
+        
+#         v_in_bin = tfp.math.clip_by_value_preserve_gradient(
+#             v_in, clip_value_min=0, clip_value_max=1
+#         )
+        v_in_bin = tf.round(v_in) # softmax output to binary
         W, bv, bh = self.W, self.bv, self.bh
-        # print("W", tf.reduce_sum(W))
-        loss = tf.subtract(self.energy(v_in, W, bv, bh), self.energy(v_out, W, bv, bh))
+        loss = tf.subtract(self.energy(v_in_bin, W, bv, bh), self.energy(v_out, W, bv, bh))
+        if self.debug:
+            print("+++")
+            print("W", tf.reduce_mean(W))
+            print("bv", tf.reduce_mean(bv))
+            print("bh", tf.reduce_mean(bh))
+            print("e1", tf.reduce_mean(self.energy(v_in_bin, W, bv, bh)))
+            print("e2", tf.reduce_mean(self.energy(v_out, W, bv, bh)))
+    #         print("e1", self.energy(v_in_bin, W, bv, bh))
+    #         print("e2", self.energy(v_out, W, bv, bh))
+            print("loss", tf.reduce_mean(loss))
+            print("+++")
+        if self.regularization:
+            loss += self.regularizer(W)
         return loss
             
     def energy(self, v, W, bv, bh):
@@ -309,7 +355,7 @@ class RbmLoss(tf.keras.layers.Layer):
         return tf.reduce_mean( - h_term - b_term , axis=-1)
 
 
-# In[8]:
+# In[30]:
 
 
 from keras.engine import data_adapter
@@ -327,7 +373,7 @@ class MultiOptimizerModel(tf.keras.Model):
     def train_step(self, data):
         x, y, sample_weight = data_adapter.unpack_x_y_sample_weight(data)
         
-#         loss_log = dict()
+        loss_logs = {}
         for optimizer, variable, loss, name in self.optimizers_and_variables_and_losses_and_name:
             # Run forward pass.
             if self.DEBUG:
@@ -336,31 +382,32 @@ class MultiOptimizerModel(tf.keras.Model):
                     loss_value = loss(y,y_pred)
                     print("===")
                     grads = tape.gradient(loss_value, variable)
+                    print(name, loss_value.numpy())
                     print(name, [(n.name, np.ravel(x.numpy())[:3]) for n, x in zip(variable, grads)])
                     print("===")
 
             with tf.GradientTape() as tape:
                 y_pred = self(x, training=True)
                 loss_value = loss(y,y_pred)
+                # NOTE: how to reduce sigmoid focal crossentory?
+                loss_reduce = tf.reduce_mean(loss_value)
 
             # Run backwards pass.
-            optimizer.minimize(loss_value, variable, tape=tape)
-            # loss_log["loss_"+name] = loss_value
+            ## (A) reduction='sum_over_batch_size'
+            optimizer.minimize(loss_reduce, variable, tape=tape)
+            ## (B) reduction=None
+            # optimizer.minimize(loss_value, variable, tape=tape)
+            
+            loss_logs["loss_"+name] = loss_reduce
             
         # Use first output for validation
         output = self.compute_metrics(x, y, y_pred[0], sample_weight)
-        # output.update(loss_log)
+        output.update(loss_logs)
         # print(loss_log, output)
         return output
 
 
-# In[ ]:
-
-
-
-
-
-# In[9]:
+# In[31]:
 
 
 def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
@@ -380,9 +427,9 @@ def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
         model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
     elif cfg["model"]=="RBM":
         rbm_layer = Rbm(intermediate_layer.shape[-1], cfg["RBM_N"], cfg["RBM_STEP"])
-        rbm_loss = RbmLoss(rbm_layer)
+        rbm_loss = RbmLoss(rbm_layer, regularization=cfg["rbm_regularization"], debug=cfg["DEBUG"])
         rbm_output = rbm_layer(intermediate_layer)
-        output_layer = tf.keras.activations.sigmoid(tf.keras.layers.Dense(N)(rbm_output))
+        output_layer = tf.keras.layers.Dense(N)(rbm_output)
         rbm_loss_output = rbm_loss(intermediate_layer, rbm_output)
         model = MultiOptimizerModel( 
             inputs = input_layer, 
@@ -421,10 +468,10 @@ def compile_model(cfg):
         non_rbm_variables = [x for x in all_variables if (x.name not in rbm_variables_name)]
         
         kwargs["optimizers_and_variables_and_losses_and_name"] = (
-            (tf.optimizers.SGD(learning_rate=0.01), non_rbm_variables, 
+            (tf.optimizers.SGD(learning_rate=cfg["lr"]), non_rbm_variables, 
              lambda y_true, y_pred : tfa.losses.sigmoid_focal_crossentropy(y_true, y_pred[0]), # (0)
              "non-rbm"),
-            (tf.optimizers.SGD(learning_rate=0.01), rbm_variables, 
+            (tf.optimizers.SGD(learning_rate=cfg["rbm-lr"]), rbm_variables, 
              lambda y_true, y_pred : y_pred[1], # (1)
              "rbm")
         )
@@ -448,7 +495,7 @@ def fit(model, cfg, epoch_start, epoch_end):
 #                 f.write(json.dumps(logs))           
 #     filepath=output_path+"/weights-improvement-{epoch:02d}-{val_loss_non-rbm:.2f}.hdf5"
 #     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss_non-rbm', verbose=1, save_best_only=True, mode='min')
-    filepath=output_path+"/rbm-{epoch:02d}.ckpt"
+    filepath=output_path+"/rbm3-{epoch:02d}.ckpt"
 #     filepath=output_path+"/rbm-{epoch:02d}.hdf5"
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, verbose=1, save_best_only=False)
     logdir = cfg["logdir"]
@@ -456,6 +503,7 @@ def fit(model, cfg, epoch_start, epoch_end):
     
 
     STEPS_PER_EPOCH=(2**15)//cfg["BATCH_SIZE"]
+#     STEPS_PER_EPOCH=10
     model.fit(
         cfg["train_dataset"],
         epochs=epoch_end,
@@ -469,14 +517,15 @@ def fit(model, cfg, epoch_start, epoch_end):
     )
 
 
-# In[10]:
+# In[36]:
 
 
 # cfg["DEBUG"] = True
 cfg["DEBUG"] = False
+# cfg.pop("train_dataset")
 
 
-# In[ ]:
+# In[37]:
 
 
 cfg = load_data(cfg)
@@ -489,19 +538,53 @@ model.summary()
 tf.keras.utils.plot_model(model)
 
 
+# In[38]:
+
+
+cfg["reader_train"].status
+
+
 # In[ ]:
 
 
-# tf.config.run_functions_eagerly(True)
-
-# model.summary()
+cfg["lr"], cfg["rbm-lr"] = 0.01, 0.01
 base_model.trainable=False # Freeze except rbm & dense
 compile_model(cfg)
 fit(model, cfg, 0, 20)
 
-base_model.trainable=True 
+
+# In[ ]:
+
+
+cfg["reader_train"].status
+
+
+# In[ ]:
+
+
+cfg["lr"], cfg["rbm-lr"] = 0.01, 0.0001
+base_model.trainable=True
+model.layers[-3].trainable=False
+model.layers[-1].trainable=False
 compile_model(cfg)
-fit(model, cfg, 20, 100)
+fit(model, cfg, 30, 50)
+
+
+# In[ ]:
+
+
+cfg["reader_train"].status
+
+
+# In[ ]:
+
+
+cfg["lr"], cfg["rbm-lr"] = 0.002, 0.0005
+base_model.trainable=True
+model.layers[-3].trainable=True
+model.layers[-1].trainable=True
+compile_model(cfg)
+fit(model, cfg, 50, 100)
 
 
 # In[ ]:
@@ -510,8 +593,5 @@ fit(model, cfg, 20, 100)
 
 
 
-# In[ ]:
-
-
-
-
+# import matplotlib.pyplot as plt
+# plt.hist(np.ravel(model.layers[2](model.layers[1](model.layers[0](x[0]))).numpy()), bins=30)
