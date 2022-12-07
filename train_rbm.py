@@ -39,18 +39,24 @@ tf.keras.backend.clear_session()
 
 _cfg = {
     "N":5000, "INPUT_IMAGE_SIZE":512, "normalize_label":True,
-    "RBM_N":1000, "RBM_STEP":3,
+    "RBM_N":200, "RBM_STEP":1,
     "lr":0.01, "rbm-lr":0.01, "rbm_regularization":False,
     
     "BATCH_SIZE":128, "BUFFER_SIZE":128*3, 
     "model":"RBM", "DEBUG":False,
     "logdir":f"./tensorboard-logs/{datetime.isoformat(datetime.now())}",
-    "ckpt_name":"rbm5",
+    "ckpt_name":"rbm10",
 }
 try:
     cfg.update(_cfg)
 except:
     cfg = _cfg.copy()
+
+
+# In[ ]:
+
+
+
 
 
 # In[4]:
@@ -142,7 +148,7 @@ class Datagen:
 #                     print(f"new : {new}")
 #                     raise ValueError()
             self.blocks[info["id"][-3:].zfill(4)][info['id']]=info
-        self.status = {"block":"", "id":""}
+        self.status = {"block":"", "id":"", "epoch":-1}
             
     def status(self):
         print(self.status)
@@ -152,6 +158,7 @@ class Datagen:
             print(*args)
 
     def gen(self):
+        self.status["epoch"] += 1
         for block, metadata_dict in self.blocks.items():
             self.status["block"] = block
             if len(metadata_dict)==0 : 
@@ -176,7 +183,7 @@ class Datagen:
                             img_id = info["id"]
                             img_ext = info["file_ext"]
                             label = info["tags_"]
-                            if len(label) < 5 :
+                            if len(label) < 3 :
                                 self._print(f"[error] {label}")
                                 continue
                             with tar.extractfile(tarinfo) as f:
@@ -264,7 +271,7 @@ class Rbm(tf.keras.layers.Layer):
             
         # TODO : constraint, regularization
         self.W = self.add_weight(name='W', shape=(nv, nh), trainable=True)
-        self.W.assign(tf.random.truncated_normal((nv, nh)) * 0.01)
+        self.W.assign(tf.random.truncated_normal((nv, nh)) * 0.0001) # 1/N
         self.bv = self.add_weight(name='bias_visible', shape=(nv,), trainable=True)
         self.bh = self.add_weight(name='bias_hidden', shape=(nh,), trainable=True)
         self.cd_steps = cd_steps
@@ -278,26 +285,11 @@ class Rbm(tf.keras.layers.Layer):
         
     def sample_h(self, v):
         ph_given_v = tf.sigmoid(tf.einsum('vh,bv->bh', self.W, v) + tf.expand_dims(self.bh, axis=0))
-        return self.bernoulli(ph_given_v)
-      
+        return tfp.math.clip_by_value_preserve_gradient(ph_given_v, clip_value_min=0, clip_value_max=1)
+    
     def sample_v(self, h):
         pv_given_h = tf.sigmoid(tf.einsum('vh,bh->bv', self.W, h) + tf.expand_dims(self.bv, axis=0))
-        return self.bernoulli(pv_given_h)
-    
-    def bernoulli(self, p):
-        # Note : No intra-batch randomness
-        # return tf.nn.relu(tf.sign(p - tf.random.uniform([1] + p.shape[1:])))
-#         return tf.nn.relu(tfp.math.clip_by_value_preserve_gradient(
-#             (p - tf.random.uniform([1] + p.shape[1:], 
-#                 minval=0,
-#                 maxval=0.2,
-#                 dtype=tf.dtypes.float32,
-#             )), clip_value_min=0, clip_value_max=1
-#         ))
-        return tf.nn.relu(tfp.math.clip_by_value_preserve_gradient(
-            (p - tf.random.gamma([1] + p.shape[1:], alpha=0.2, beta=1/0.3)),
-            clip_value_min=0, clip_value_max=1
-        ))
+        return tfp.math.clip_by_value_preserve_gradient(pv_given_h, clip_value_min=0, clip_value_max=1)
     
     def call(self, inputs):
         v = inputs
@@ -305,13 +297,16 @@ class Rbm(tf.keras.layers.Layer):
 #             inputs, clip_value_min=0, clip_value_max=1
 #         )
         vk = tf.identity(v)
-        for i in range(self.cd_steps):
-            # Gibbs step
-            hk = self.sample_h(vk)
-            vk = self.sample_v(hk)
+#         for i in range(self.cd_steps):
+#             # Gibbs step
+#             hk = self.sample_h(vk)
+#             vk = self.sample_v(hk)
         # print("v", v[0][:3])
         # print("vk", vk[0][:3])
-        return vk
+#         return vk
+        hk = self.sample_h(vk)
+        return hk
+
     
 
 class RbmLoss(tf.keras.layers.Layer):
@@ -328,15 +323,47 @@ class RbmLoss(tf.keras.layers.Layer):
         self.W = rbm_layer.W
         self.bv = rbm_layer.bv
         self.bh = rbm_layer.bh
+        self.cd_steps = rbm_layer.cd_steps
         
-    def call(self, v_in, v_out):
+    def sample_h(self, v):
+        ph_given_v = tf.sigmoid(tf.einsum('vh,bv->bh', self.W, v) + tf.expand_dims(self.bh, axis=0))
+        return self.bernoulli(ph_given_v)
+      
+    def sample_v(self, h):
+        pv_given_h = tf.sigmoid(tf.einsum('vh,bh->bv', self.W, h) + tf.expand_dims(self.bv, axis=0))
+        return self.bernoulli(pv_given_h)
+    
+    def bernoulli(self, p):
+        # Note : No intra-batch randomness
+        # return tf.nn.relu(tf.sign(p - tf.random.uniform([1] + p.shape[1:])))
+#         return tf.nn.relu(tfp.math.clip_by_value_preserve_gradient(
+#             (p + 0.1 - tf.random.uniform([1] + p.shape[1:], 
+#                 minval=0,
+#                 maxval=0.2,
+#                 dtype=tf.dtypes.float32,
+#             )), clip_value_min=0, clip_value_max=1
+#         ))
+        return tf.nn.relu(tfp.math.clip_by_value_preserve_gradient(
+            (p - tf.random.gamma([1] + p.shape[1:], alpha=0.2, beta=1/0.3)),
+            clip_value_min=0, clip_value_max=1
+        ))
+    
+    def call(self, v_in):
         # only grad for W, b
-        # tf.stop_gradient(v_in) # not sure
-        v_out = tf.stop_gradient(v_out)
+        tf.stop_gradient(v_in) # not sure
         
-        v_in_bin = tf.round(v_in) # softmax output to binary
+        vk = tf.identity(v_in)
+        for i in range(self.cd_steps):
+            # Gibbs step
+            hk = self.sample_h(vk)
+            vk = self.sample_v(hk)
+#         v_out = tf.stop_gradient(vk)
+        v_out = vk
+        
         W, bv, bh = self.W, self.bv, self.bh
-        loss = tf.subtract(self.energy(v_in_bin, W, bv, bh), self.energy(v_out, W, bv, bh))
+#         v_in_bin = tf.round(v_in) # softmax output to binary
+#         loss = tf.subtract(self.energy(v_in_bin, W, bv, bh), self.energy(v_out, W, bv, bh))
+        loss = tf.keras.losses.kullback_leibler_divergence(v_in, v_out)
         if self.debug:
             print("+++")
             print("W", tf.reduce_mean(W))
@@ -444,16 +471,19 @@ def modify_model(base_model, cfg, optimizer=tf.optimizers.SGD):
         rbm_layer = Rbm(clip_intermediate_layer.shape[-1], cfg["RBM_N"], cfg["RBM_STEP"])
         rbm_loss = RbmLoss(rbm_layer, regularization=cfg["rbm_regularization"], debug=cfg["DEBUG"])
         rbm_output = rbm_layer(clip_intermediate_layer)
-        dense = tf.keras.layers.Dense(N)
-        clean_output_layer = dense(clip_intermediate_layer)
-        output_layer = dense(rbm_output)
-        rbm_loss_output = rbm_loss(intermediate_layer, rbm_output)
+        dense = tf.keras.layers.Dense(N, activation='softmax')
+        scale = tf.keras.layers.Dense(1, activation='sigmoid')
+        #clean_output_layer = dense(clip_intermediate_layer)
+        concat = tf.concat([intermediate_layer, rbm_output], axis=-1) #FIXME
+        output_layer = tfp.math.clip_by_value_preserve_gradient(
+            tf.multiply(dense(concat) , tf.multiply(scale(concat), tf.constant(100, dtype=tf.float32))),
+            clip_value_min=0, clip_value_max=1)
+        rbm_loss_output = rbm_loss(clip_intermediate_layer)
         model = MultiOptimizerModel( 
             inputs = input_layer, 
             outputs = [
-                clean_output_layer,  # (0)
-                output_layer,  # (1)
-                rbm_loss_output# (2)
+                output_layer,  # (0)
+                rbm_loss_output# (1)
             ],
             DEBUG = cfg["DEBUG"]
         )
@@ -486,14 +516,11 @@ def compile_model(cfg):
         non_rbm_variables = [x for x in all_variables if (x.name not in rbm_variables_name)]
         
         kwargs["optimizers_and_variables_and_losses_and_name"] = (
-            (tf.optimizers.SGD(learning_rate=cfg["lr"]), non_rbm_variables, 
+            (tf.optimizers.Adam(learning_rate=cfg["lr"]), non_rbm_variables, 
              lambda y_true, y_pred : tfa.losses.sigmoid_focal_crossentropy(y_true, y_pred[0]), # (0)
              "clean"),
-            (tf.optimizers.SGD(learning_rate=cfg["rbm-lr"]), non_rbm_variables, 
-             lambda y_true, y_pred : tfa.losses.sigmoid_focal_crossentropy(y_true, y_pred[0]), # (1)
-             "non-rbm"),
-            (tf.optimizers.SGD(learning_rate=cfg["rbm-lr"]), rbm_variables, 
-             lambda y_true, y_pred : y_pred[1], # (2)
+            (tf.optimizers.Adam(learning_rate=cfg["rbm-lr"]), rbm_variables, 
+             lambda y_true, y_pred : y_pred[1], # (1)
              "rbm")
         )
 #         kwargs["metrics"] = [
@@ -566,17 +593,17 @@ tf.keras.utils.plot_model(model)
 cfg["reader_train"].status
 
 
-# In[15]:
+# In[ ]:
 
 
-cfg["lr"], cfg["rbm-lr"] = 0.01, 0.01
+cfg["lr"], cfg["rbm-lr"] = 0.001, 0.001
 model.trainable=True
 base_model.trainable=False # Freeze except rbm & dense
 compile_model(cfg)
 fit(model, cfg, 0, 50)
 
 
-# In[16]:
+# In[ ]:
 
 
 cfg["reader_train"].status
@@ -585,9 +612,16 @@ cfg["reader_train"].status
 # In[ ]:
 
 
-cfg["lr"], cfg["rbm-lr"] = 0.01, 0.01
+cfg["lr"], cfg["rbm-lr"] = 0.0005, 0.0005
 model.trainable=True
 base_model.trainable=True # Freeze except rbm & dense
+print(model.layers[-3].name)
+model.layers[-3].trainable=False
+
+
+# In[ ]:
+
+
 compile_model(cfg)
 fit(model, cfg, 50, 100)
 
@@ -595,15 +629,85 @@ fit(model, cfg, 50, 100)
 # In[ ]:
 
 
-cfg["reader_train"].status
+model2 = tf.keras.Model(inputs= model.input, outputs = model.output[0])
+tf.keras.utils.plot_model(model2)
+model2.compile(
+        optimizer = tf.optimizers.Adam(learning_rate=0.0002),
+        loss = tfa.losses.SigmoidFocalCrossEntropy(),
+        metrics = [
+            tf.keras.metrics.KLDivergence(),
+            tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+            tfa.losses.SigmoidFocalCrossEntropy(),
+            tfa.losses.SparsemaxLoss(),
+            tf.keras.losses.MeanAbsoluteError(),
+            tf.keras.losses.Huber(delta=1.0),
+        ]
+)
+fit(model2, cfg, 100, 150)
 
 
 # In[ ]:
 
 
-cfg["lr"], cfg["rbm-lr"] = 0.002, 0.002
-model.trainable=True
-base_model.trainable=True # Freeze except rbm & dense
-compile_model(cfg)
-fit(model, cfg, 100, 200)
+
+
+
+# In[ ]:
+
+
+# cfg["lr"], cfg["rbm-lr"] = 0.01, 0.01
+# base_model.trainable=False # Freeze except rbm & dense
+# compile_model(cfg)
+# fit(model, cfg, 0, 20)
+
+# cfg["lr"], cfg["rbm-lr"] = 0.01, 0.01
+# base_model.trainable=True
+# model.layers[-3].trainable=False
+# model.layers[-1].trainable=False
+# compile_model(cfg)
+# fit(model, cfg, 20, 50)
+
+# model.load_weights("./model/rbm3-39.ckpt")
+# for i in range(55):
+#     cfg["reader_train"].blocks.pop(str(i).zfill(4))
+# cfg["reader_train"].blocks.keys()
+# cfg["lr"], cfg["rbm-lr"] = 0.01, 0.01
+# base_model.trainable=True
+# model.layers[-3].trainable=False
+# model.layers[-1].trainable=False
+# compile_model(cfg)
+# fit(model, cfg, 39, 50)
+
+# cfg["lr"], cfg["rbm-lr"] = 0.002, 0.0005
+# base_model.trainable=True
+# model.layers[-3].trainable=True
+# model.layers[-1].trainable=True
+# compile_model(cfg)
+# fit(model, cfg, 50, 100)
+
+
+# In[ ]:
+
+
+# import matplotlib.pyplot as plt
+# x = cfg['test_dataset'].take(1).get_single_element()
+# plt.hist(np.ravel(model.layers[2](model.layers[1](model.layers[0](x[0]))).numpy()), bins=30)
+
+
+# In[ ]:
+
+
+print("TEST")
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
 
